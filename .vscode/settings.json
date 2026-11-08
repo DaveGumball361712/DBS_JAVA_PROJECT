@@ -1,0 +1,5 @@
+{
+    "java.project.sourcePaths": ["WarehouseApp/src"],
+    "java.project.outputPath": "WarehouseApp/bin",
+    "java.project.referencedLibraries": ["WarehouseApp/lib/**/*.jar"]
+}
