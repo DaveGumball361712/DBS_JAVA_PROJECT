@@ -1,10 +1,20 @@
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+
+import util.DBConnection;
+
 public class App {
     public static void main(String[] args) {
-        try {
-            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
-            System.out.println("Da tim thay JDBC driver!");
-        } catch (ClassNotFoundException e) {
-            System.out.println("Chua co JDBC driver trong lib!");
+        try (Connection conn = DBConnection.getConnection();
+            Statement st = conn.createStatement();
+            ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM sys.tables")) {
+
+            rs.next();
+            System.out.println("Ket noi thanh cong! So bang: " + rs.getInt(1));
+
+        } catch (Exception e) {
+            System.out.println("Ket noi that bai: " + e.getMessage());
         }
     }
 }
