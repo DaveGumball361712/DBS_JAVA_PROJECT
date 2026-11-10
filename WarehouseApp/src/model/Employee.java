@@ -28,7 +28,7 @@ public abstract class Employee {
         this.address = address;
     }
 
-    public getFullName(){
+    public String getFullName(){
         return (lastName != null ? lastName.trim() : "") + " " + (firstName != null ? firstName.trim() : "");
     }
 
@@ -36,10 +36,12 @@ public abstract class Employee {
         if (this.dateOfBirth == null) {
             return 0;
         }
-        return Period.between(this.dateOfBirth, localDate.now()).getYears(); 
+        return Period.between(this.dateOfBirth, LocalDate.now()).getYears(); 
     }
 
-    public String getEmployeeId() {
+    public abstract String getRole();
+
+    public int getEmployeeId() {
         return employeeId;
     }
 
@@ -100,11 +102,11 @@ public abstract class Employee {
     }
 
     public void setPhoneNumbers(List<String> phoneNumber){
-        this.phoneNUmbers = phoneNumbes != null ? phoneNUmbers : new ArrayList<>();
+        this.phoneNUmbers = phoneNumber != null ? phoneNUmbers : new ArrayList<>();
     }
 
     public void addPhoneNumber(String phone){
-        if (phone != null && !phone.isBlank() && !this.phoneNUmbers.contain(phone)) {
+        if (phone != null && !phone.isBlank() && !this.phoneNUmbers.contains(phone)) {
             this.phoneNUmbers.add(phone);
         }
     }
