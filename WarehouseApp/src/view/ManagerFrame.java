@@ -21,7 +21,7 @@ public class ManagerFrame extends JFrame {
         tabs.addTab("Loai hang", createPlaceholder("Cay loai hang (JTree)"));
         tabs.addTab("Nha cung cap", createPlaceholder("Quan ly nha cung cap"));
         tabs.addTab("Duyet phieu", new ApprovalPanel());    
-        tabs.addTab("Bao cao", createPlaceholder("Bao cao doanh thu, ton kho"));
+        tabs.addTab("Bao cao", new ReportPanel());
         add(tabs, BorderLayout.CENTER);
     }
 
