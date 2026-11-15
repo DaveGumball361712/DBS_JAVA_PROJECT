@@ -20,20 +20,20 @@ public class ManagerFrame extends JFrame {
         tabs.addTab("San pham", createPlaceholder("Quan ly san pham"));
         tabs.addTab("Loai hang", createPlaceholder("Cay loai hang (JTree)"));
         tabs.addTab("Nha cung cap", createPlaceholder("Quan ly nha cung cap"));
-        tabs.addTab("Duyet phieu", createPlaceholder("Duyet phieu xuat va kiem ke"));
+        tabs.addTab("Duyet phieu", new ApprovalPanel());    
         tabs.addTab("Bao cao", createPlaceholder("Bao cao doanh thu, ton kho"));
         add(tabs, BorderLayout.CENTER);
     }
 
     private JPanel createHeader(String managerName){
-        JPanel header=new JPanel();
+        JPanel header=new JPanel(new BorderLayout());
         header.setBorder(BorderFactory.createEmptyBorder(8,12,8,12));
 
-        JLabel hello = new JLabel();
+        JLabel hello = new JLabel("Xin chào " + managerName);
         hello.setFont(hello.getFont().deriveFont(Font.BOLD, 16f));
         header.add(hello,BorderLayout.WEST);
 
-        JButton logout = new JButton();
+        JButton logout = new JButton("Đăng xuất");
         logout.addActionListener(e -> dispose());
         header.add(logout, BorderLayout.EAST);
         return header;
