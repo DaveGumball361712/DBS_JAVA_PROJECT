@@ -1,6 +1,6 @@
 -- =====================================================================
 -- File:    ADVANCED_WAREHOUSE.sql
--- Mô tả:   3 View + 3 Trigger cho phân hệ Kho (Giai đoạn 1)
+-- Mô tả:   3 View + 3 Trigger + 2 Stored Procedure cho phân hệ Kho
 -- =====================================================================
 
 USE WAREHOUSEMANAGEMENT;
@@ -247,6 +247,157 @@ END;
 GO
 
 PRINT N'✓ Tạo TRIGGER WAREHOUSE.TRG_RETURN_SUPPLIER_REASON thành công';
+GO
+
+
+-- =============================================================
+-- PHẦN 3: STORED PROCEDURES (Giai đoạn 2 - 16-17/11)
+-- =============================================================
+
+-- -------------------------------------------------------------
+-- PROCEDURE 1: SP_APPROVE_EXPORT_RECEIPT
+-- Mục đích: Quản lý duyệt 1 phiếu xuất kho.
+-- Tham số:
+--   @ExportReceiptId INT : Mã phiếu xuất cần duyệt
+--   @ManagerId       INT : Mã nhân viên quản lý thực hiện duyệt
+-- Nghiệp vụ:
+--   1. Kiểm tra phiếu tồn tại và đang ở trạng thái chưa duyệt.
+--   2. Kiểm tra Manager hợp lệ (có trong bảng HR.MANAGER).
+--   3. Cập nhật MANAGER_ID và APPROVE_TIME → Trigger
+--      TRG_EXPORT_APPROVE_SUB_STOCK tự động trừ tồn kho.
+--      (Nếu xuất vượt tồn, CHECK constraint sẽ tự rollback)
+-- -------------------------------------------------------------
+CREATE OR ALTER PROCEDURE WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT
+    @ExportReceiptId INT,
+    @ManagerId       INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- 1. Kiểm tra phiếu xuất có tồn tại không
+    IF NOT EXISTS (
+        SELECT 1 FROM WAREHOUSE.EXPORT_RECEIPT
+        WHERE EXPORT_RECEIPT_ID = @ExportReceiptId
+    )
+    BEGIN
+        ;THROW 50010, N'Phiếu xuất không tồn tại.', 1;
+        RETURN;
+    END
+
+    -- 2. Kiểm tra phiếu đã duyệt chưa
+    IF EXISTS (
+        SELECT 1 FROM WAREHOUSE.EXPORT_RECEIPT
+        WHERE EXPORT_RECEIPT_ID = @ExportReceiptId
+          AND MANAGER_ID IS NOT NULL
+    )
+    BEGIN
+        ;THROW 50011, N'Phiếu xuất đã được duyệt trước đó.', 1;
+        RETURN;
+    END
+
+    -- 3. Kiểm tra Manager hợp lệ
+    IF NOT EXISTS (
+        SELECT 1 FROM HR.MANAGER
+        WHERE EMPLOYEE_ID = @ManagerId
+    )
+    BEGIN
+        ;THROW 50012, N'Mã quản lý không hợp lệ.', 1;
+        RETURN;
+    END
+
+    -- 4. Duyệt phiếu (Trigger TRG_EXPORT_APPROVE_SUB_STOCK sẽ tự trừ kho)
+    UPDATE WAREHOUSE.EXPORT_RECEIPT
+    SET MANAGER_ID   = @ManagerId,
+        APPROVE_TIME = GETDATE()
+    WHERE EXPORT_RECEIPT_ID = @ExportReceiptId;
+
+    PRINT N'✓ Duyệt phiếu xuất #' + CAST(@ExportReceiptId AS NVARCHAR) + N' thành công.';
+END;
+GO
+
+PRINT N'✓ Tạo PROCEDURE WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT thành công';
+GO
+
+
+-- -------------------------------------------------------------
+-- PROCEDURE 2: SP_APPROVE_STOCK_CHECK
+-- Mục đích: Quản lý duyệt 1 phiếu kiểm kê.
+-- Tham số:
+--   @StockCheckId INT : Mã phiếu kiểm kê cần duyệt
+--   @ManagerId    INT : Mã nhân viên quản lý thực hiện duyệt
+-- Nghiệp vụ:
+--   1. Kiểm tra phiếu tồn tại và đang ở trạng thái WAITING FOR APPROVAL.
+--   2. Kiểm tra Manager hợp lệ.
+--   3. Đổi STATUS = 'APPROVED', ghi MANAGER_ID và APPROVE_TIME.
+--   4. Cập nhật CURRENT_STOCK = ACTUAL_QUANTITY cho các sản phẩm
+--      trong phiếu kiểm kê (trong cùng 1 Transaction).
+-- -------------------------------------------------------------
+CREATE OR ALTER PROCEDURE WAREHOUSE.SP_APPROVE_STOCK_CHECK
+    @StockCheckId INT,
+    @ManagerId    INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- 1. Kiểm tra phiếu kiểm kê có tồn tại không
+    IF NOT EXISTS (
+        SELECT 1 FROM WAREHOUSE.STOCK_CHECK
+        WHERE STOCK_CHECK_ID = @StockCheckId
+    )
+    BEGIN
+        ;THROW 50020, N'Phiếu kiểm kê không tồn tại.', 1;
+        RETURN;
+    END
+
+    -- 2. Kiểm tra phiếu đang ở trạng thái chờ duyệt
+    IF NOT EXISTS (
+        SELECT 1 FROM WAREHOUSE.STOCK_CHECK
+        WHERE STOCK_CHECK_ID = @StockCheckId
+          AND STATUS = N'WAITING FOR APPROVAL'
+    )
+    BEGIN
+        ;THROW 50021, N'Phiếu kiểm kê đã được duyệt trước đó hoặc không ở trạng thái chờ.', 1;
+        RETURN;
+    END
+
+    -- 3. Kiểm tra Manager hợp lệ
+    IF NOT EXISTS (
+        SELECT 1 FROM HR.MANAGER
+        WHERE EMPLOYEE_ID = @ManagerId
+    )
+    BEGIN
+        ;THROW 50022, N'Mã quản lý không hợp lệ.', 1;
+        RETURN;
+    END
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        -- Bước 1: Cập nhật trạng thái phiếu kiểm kê sang APPROVED
+        UPDATE WAREHOUSE.STOCK_CHECK
+        SET STATUS       = N'APPROVED',
+            MANAGER_ID   = @ManagerId,
+            APPROVE_TIME = GETDATE()
+        WHERE STOCK_CHECK_ID = @StockCheckId;
+
+        -- Bước 2: Đồng bộ tồn kho: CURRENT_STOCK = ACTUAL_QUANTITY
+        UPDATE p
+        SET p.CURRENT_STOCK = cd.ACTUAL_QUANTITY
+        FROM CATALOG.PRODUCT p
+        JOIN WAREHOUSE.CHECK_DETAIL cd
+            ON p.PRODUCT_ID = cd.PRODUCT_ID
+        WHERE cd.STOCK_CHECK_ID = @StockCheckId;
+
+        COMMIT TRANSACTION;
+        PRINT N'✓ Duyệt phiếu kiểm kê #' + CAST(@StockCheckId AS NVARCHAR) + N' thành công.';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        ;THROW;
+    END CATCH;
+END;
+GO
+
+PRINT N'✓ Tạo PROCEDURE WAREHOUSE.SP_APPROVE_STOCK_CHECK thành công';
 GO
 
 
