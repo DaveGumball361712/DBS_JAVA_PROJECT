@@ -1,56 +1,63 @@
 package view;
 
-/**
- * Dữ liệu giả (Mock Data) dùng chung cho 3 panel trong WarehouseFrame.
- * Lấy mẫu từ file insertdata_warehousemanagement.sql để khi chuyển sang
- * model thật (của Đức) và DAO thật (của Phúc) thì dễ ánh xạ.
- *
- * Giai đoạn 2: Thay toàn bộ class này bằng các lời gọi DAO thật.
- */
+import model.Electronics;
+import model.Foods;
+import model.Product;
+import model.ProductStatus;
+import model.Supplier;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
+
+// Du lieu gia dung tam truoc khi noi DAO
 public class MockData {
 
-    // ===== NHÀ CUNG CẤP (WAREHOUSE.SUPPLIER) =====
-    public static final String[] SUPPLIER_NAMES = {
-        "Công ty TNHH Acecook Việt Nam",
-        "Công ty CP Masan Consumer",
-        "Tổng công ty Cổ phần Bia Sài Gòn",
-        "Công ty TNHH Nestlé Việt Nam",
-        "Công ty CP Sữa Vinamilk"
-    };
+    private static final List<Supplier> SUPPLIERS = Arrays.asList(
+        new Supplier(1, "Công ty TNHH Acecook Việt Nam", "contact@acecook.vn", "KCN Tân Bình, TP.HCM", "0300808687"),
+        new Supplier(2, "Công ty CP Masan Consumer", "support@masan.vn", "Quận 1, TP.HCM", "0302017440"),
+        new Supplier(3, "Tổng công ty Cổ phần Bia Sài Gòn", "info@sabeco.com.vn", "Quận 5, TP.HCM", "0300583659"),
+        new Supplier(4, "Công ty TNHH Nestlé Việt Nam", "cs@nestle.vn", "Biên Hòa, Đồng Nai", "3600235305"),
+        new Supplier(5, "Công ty CP Sữa Vinamilk", "vinamilk@vinamilk.com.vn", "Quận 7, TP.HCM", "0300588569")
+    );
 
-    // ===== SẢN PHẨM (CATALOG.PRODUCT) =====
-    // Mỗi sản phẩm gồm: ID, Tên, Giá bán hiện tại, Tồn kho, Đơn vị
-    public static final int[]    PRODUCT_IDS     = { 1,  2,  3,  4,  5,  6,  7,  8,  9, 10};
-    public static final String[] PRODUCT_NAMES   = {
-        "Thùng mì Hảo Hảo tôm chua cay 30 gói",
-        "Thùng mì Omachi xốt bò hầm 30 gói",
-        "Mì ly Modern lẩu thái tôm 65g",
-        "Phở bò Đệ Nhất gói 65g",
-        "Bún tươi sấy khô Safoco 400g",
-        "Miến phú hương sườn heo 55g",
-        "Gạo thơm ST25 Ông Cua túi 5kg",
-        "Gạo Jasmine thượng hạng túi 5kg",
-        "Yến mạch cán mỏng Quaker 600g",
-        "Nước mắm Nam Ngư Phú Quốc 750ml"
-    };
-    public static final double[] PRODUCT_PRICES  = {
-        33500, 42000, 50500, 59000, 67500, 76000, 84500, 93000, 101500, 110000
-    };
-    public static final int[]    PRODUCT_STOCKS  = {
-        53, 56, 59, 62, 65, 68, 71, 74, 77, 80
-    };
-    public static final String[] PRODUCT_UNITS   = {
-        "Thùng", "Gói", "Chai", "Lốc", "Hộp", "Túi", "Thùng", "Gói", "Chai", "Lốc"
-    };
+    private static final List<Product> PRODUCTS = Arrays.asList(
+        new Foods(1, 11, "Thùng mì Hảo Hảo tôm chua cay 30 gói", new BigDecimal("33500"),
+                ProductStatus.ON_SALE, 20, "893456700001", 53, "Thùng", "Nơi khô ráo", 180),
+        new Foods(2, 11, "Thùng mì Omachi xốt bò hầm 30 gói", new BigDecimal("42000"),
+                ProductStatus.ON_SALE, 20, "893456700002", 56, "Thùng", "Nơi khô ráo", 180),
+        new Foods(3, 11, "Mì ly Modern lẩu thái tôm 65g", new BigDecimal("50500"),
+                ProductStatus.ON_SALE, 20, "893456700003", 59, "Lốc", "Nơi khô ráo", 180),
+        new Foods(4, 12, "Phở bò Đệ Nhất gói 65g", new BigDecimal("59000"),
+                ProductStatus.ON_SALE, 20, "893456700004", 62, "Lốc", "Nơi khô ráo", 180),
+        new Foods(5, 12, "Bún tươi sấy khô Safoco 400g", new BigDecimal("67500"),
+                ProductStatus.ON_SALE, 20, "893456700005", 65, "Gói", "Nơi khô ráo", 365),
+        new Foods(6, 13, "Gạo thơm ST25 Ông Cua túi 5kg", new BigDecimal("84500"),
+                ProductStatus.ON_SALE, 20, "893456700007", 71, "Túi", "Nơi thoáng mát", 180),
+        new Foods(7, 14, "Nước mắm Nam Ngư Phú Quốc 750ml", new BigDecimal("110000"),
+                ProductStatus.ON_SALE, 20, "893456700010", 80, "Chai", "Tránh ánh nắng", 365),
+        new Foods(8, 20, "Sữa tươi Vinamilk 100% lốc 4 hộp", new BigDecimal("32000"),
+                ProductStatus.ON_SALE, 25, "893456700028", 134, "Lốc", "Bảo quản lạnh", 90),
+        new Electronics(9, 31, "Nồi cơm điện Sharp 1.8 lít KS-18TJV", new BigDecimal("315000"),
+                ProductStatus.ON_SALE, 10, "893890100051", 27, "Cái", 12),
+        new Electronics(10, 32, "Ấm đun siêu tốc Sunhouse 1.8 lít", new BigDecimal("510000"),
+                ProductStatus.ON_SALE, 10, "893890100054", 33, "Cái", 12)
+    );
 
-    /**
-     * Tìm index của sản phẩm theo tên hiển thị.
-     * Trả về -1 nếu không tìm thấy.
-     */
-    public static int findProductIndex(String productName) {
-        for (int i = 0; i < PRODUCT_NAMES.length; i++) {
-            if (PRODUCT_NAMES[i].equals(productName)) return i;
+    public static List<Supplier> getSuppliers() {
+        return SUPPLIERS;
+    }
+
+    public static List<Product> getProducts() {
+        return PRODUCTS;
+    }
+
+    public static Product findProductByName(String name) {
+        for (Product p : PRODUCTS) {
+            if (p.getName().equals(name)) {
+                return p;
+            }
         }
-        return -1;
+        return null;
     }
 }

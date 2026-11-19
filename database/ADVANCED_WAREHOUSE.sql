@@ -1,23 +1,9 @@
--- =====================================================================
--- File:    ADVANCED_WAREHOUSE.sql
--- Mô tả:   3 View + 3 Trigger + 2 Stored Procedure cho phân hệ Kho
--- =====================================================================
-
 USE WAREHOUSEMANAGEMENT;
 GO
 
--- =============================================================
--- PHẦN 1: VIEWS (3 View)
--- =============================================================
+-- ==================== VIEWS ====================
 
--- -------------------------------------------------------------
--- VIEW 1: V_IMPORT_RECEIPT_TOTAL
--- Mục đích: Tổng tiền từng phiếu nhập = SUM(Số lượng × Giá nhập)
---           kèm thông tin nhà cung cấp và nhân viên lập phiếu.
--- Giải quyết: Thuộc tính dẫn xuất "Tổng tiền phiếu nhập" (R12)
---             không lưu cứng trong bảng, tính ra mỗi lần truy vấn.
--- Cách dùng: SELECT * FROM WAREHOUSE.V_IMPORT_RECEIPT_TOTAL
--- -------------------------------------------------------------
+-- 1. Tong tien tung phieu nhap (R12)
 CREATE OR ALTER VIEW WAREHOUSE.V_IMPORT_RECEIPT_TOTAL
 AS
 SELECT 
@@ -47,21 +33,7 @@ GROUP BY
     ir.DESCRIPTION;
 GO
 
-PRINT N'✓ Tạo VIEW WAREHOUSE.V_IMPORT_RECEIPT_TOTAL thành công';
-GO
-
-
--- -------------------------------------------------------------
--- VIEW 2: V_CHECK_DIFFERENCE
--- Mục đích: Chi tiết từng dòng kiểm kê, kèm tên sản phẩm
---           và cột chênh lệch = Số thực tế − Số hệ thống.
--- Giải quyết: Thuộc tính dẫn xuất "Chênh lệch kiểm kê" (R16)
---    Chênh lệch < 0: thiếu hàng (mất mát/hao hụt)
---    Chênh lệch > 0: thừa hàng
---    Chênh lệch = 0: khớp kho
--- Cách dùng: SELECT * FROM WAREHOUSE.V_CHECK_DIFFERENCE
---            WHERE STOCK_CHECK_ID = 1
--- -------------------------------------------------------------
+-- 2. Chenh lech kiem ke: thuc te - he thong (R16)
 CREATE OR ALTER VIEW WAREHOUSE.V_CHECK_DIFFERENCE
 AS
 SELECT 
@@ -82,18 +54,7 @@ FROM WAREHOUSE.CHECK_DETAIL cd
         ON cd.PRODUCT_ID = p.PRODUCT_ID;
 GO
 
-PRINT N'✓ Tạo VIEW WAREHOUSE.V_CHECK_DIFFERENCE thành công';
-GO
-
-
--- -------------------------------------------------------------
--- VIEW 3: V_LOW_STOCK
--- Mục đích: Cảnh báo sản phẩm đang bán (ON SALE) mà
---           tồn kho hiện tại < mức tồn tối thiểu.
---           Thủ kho nhìn view này để biết cần nhập thêm hàng.
--- Cách dùng: SELECT * FROM CATALOG.V_LOW_STOCK
---            ORDER BY SHORTAGE_QUANTITY DESC
--- -------------------------------------------------------------
+-- 3. San pham dang ban co ton kho duoi muc toi thieu
 CREATE OR ALTER VIEW CATALOG.V_LOW_STOCK
 AS
 SELECT 
@@ -114,31 +75,34 @@ WHERE p.STATUS = N'ON SALE'
   AND p.CURRENT_STOCK < p.MIN_STOCK;
 GO
 
-PRINT N'✓ Tạo VIEW CATALOG.V_LOW_STOCK thành công';
+-- 4. Bao cao nhap hang theo tung nha cung cap
+CREATE OR ALTER VIEW WAREHOUSE.V_IMPORT_BY_SUPPLIER
+AS
+SELECT 
+    s.SUPPLIER_ID,
+    s.NAME                                              AS SUPPLIER_NAME,
+    s.TAX_CODE,
+    s.EMAIL,
+    COUNT(DISTINCT ir.IMPORT_RECEIPT_ID)                AS RECEIPT_COUNT,
+    ISNULL(SUM(inc.QUANTITY), 0)                        AS TOTAL_QUANTITY,
+    ISNULL(SUM(inc.QUANTITY * inc.IMPORT_PRICE), 0)     AS TOTAL_IMPORT_AMOUNT,
+    MAX(ir.IMPORT_DATE)                                 AS LAST_IMPORT_DATE
+FROM WAREHOUSE.SUPPLIER s
+    LEFT JOIN WAREHOUSE.IMPORT_RECEIPT ir 
+        ON s.SUPPLIER_ID = ir.SUPPLIER_ID
+    LEFT JOIN WAREHOUSE.INCLUDES inc 
+        ON ir.IMPORT_RECEIPT_ID = inc.IMPORT_RECEIPT_ID
+GROUP BY 
+    s.SUPPLIER_ID,
+    s.NAME,
+    s.TAX_CODE,
+    s.EMAIL;
 GO
 
 
--- =============================================================
--- PHẦN 2: TRIGGERS (3 Trigger)
--- =============================================================
--- LƯU Ý QUAN TRỌNG:
---   - Tất cả trigger đều xử lý MULTI-ROW (nhiều dòng INSERT/UPDATE
---     cùng lúc) bằng cách JOIN với bảng inserted/deleted rồi
---     GROUP BY, KHÔNG dùng biến đơn lẻ kiểu:
---       DECLARE @id INT = (SELECT ... FROM inserted)  ← SAI!
---   - Bảng 'inserted': chứa dòng MỚI (sau INSERT hoặc sau UPDATE).
---   - Bảng 'deleted':  chứa dòng CŨ (trước UPDATE hoặc bị DELETE).
--- =============================================================
+-- ==================== TRIGGERS ====================
 
--- -------------------------------------------------------------
--- TRIGGER 1: TRG_INCLUDES_ADD_STOCK
--- Bảng gắn: WAREHOUSE.INCLUDES
--- Sự kiện:  AFTER INSERT
--- Mục đích: Khi thêm dòng hàng vào phiếu nhập, tự động CỘNG
---           số lượng nhập vào tồn kho (CURRENT_STOCK) của sản phẩm.
--- Ví dụ:   INSERT 100 thùng mì Hảo Hảo vào phiếu nhập
---           → CURRENT_STOCK của mì Hảo Hảo tự động +100
--- -------------------------------------------------------------
+-- 1. Cong ton kho khi them dong phieu nhap (ho tro insert nhieu dong)
 CREATE OR ALTER TRIGGER WAREHOUSE.TRG_INCLUDES_ADD_STOCK
 ON WAREHOUSE.INCLUDES
 AFTER INSERT
@@ -146,7 +110,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Gom nhóm số lượng nhập theo từng sản phẩm rồi cộng vào tồn kho
     UPDATE p
     SET p.CURRENT_STOCK = p.CURRENT_STOCK + i.TOTAL_IMPORTED
     FROM CATALOG.PRODUCT p
@@ -158,24 +121,7 @@ BEGIN
 END;
 GO
 
-PRINT N'✓ Tạo TRIGGER WAREHOUSE.TRG_INCLUDES_ADD_STOCK thành công';
-GO
-
-
--- -------------------------------------------------------------
--- TRIGGER 2: TRG_EXPORT_APPROVE_SUB_STOCK
--- Bảng gắn: WAREHOUSE.EXPORT_RECEIPT
--- Sự kiện:  AFTER UPDATE
--- Mục đích: Khi Quản lý duyệt phiếu xuất (MANAGER_ID đổi từ NULL
---           sang NOT NULL), tự động TRỪ tồn kho theo số lượng
---           trong bảng chi tiết EXPORT_FROM.
--- Nghiệp vụ R14:
---   - Thủ kho lập phiếu xuất → MANAGER_ID = NULL → Chưa trừ kho.
---   - Quản lý bấm Duyệt → MANAGER_ID có giá trị → Trừ kho ngay.
--- Bảo vệ:  Nếu trừ xuống dưới 0, ràng buộc CHECK
---           CK_PRODUCT_CURRENTSTOCK (CURRENT_STOCK >= 0) trong bảng
---           PRODUCT sẽ tự động báo lỗi và ROLLBACK toàn bộ.
--- -------------------------------------------------------------
+-- 2. Tru ton kho khi quan ly duyet phieu xuat (MANAGER_ID tu NULL sang NOT NULL)
 CREATE OR ALTER TRIGGER WAREHOUSE.TRG_EXPORT_APPROVE_SUB_STOCK
 ON WAREHOUSE.EXPORT_RECEIPT
 AFTER UPDATE
@@ -183,8 +129,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Chỉ xử lý những phiếu vừa chuyển từ chưa duyệt sang đã duyệt
-    -- (MANAGER_ID cũ là NULL, MANAGER_ID mới là NOT NULL)
     IF EXISTS (
         SELECT 1
         FROM inserted i
@@ -211,20 +155,7 @@ BEGIN
 END;
 GO
 
-PRINT N'✓ Tạo TRIGGER WAREHOUSE.TRG_EXPORT_APPROVE_SUB_STOCK thành công';
-GO
-
-
--- -------------------------------------------------------------
--- TRIGGER 3: TRG_RETURN_SUPPLIER_REASON
--- Bảng gắn: WAREHOUSE.RETURN_SUPPLIER
--- Sự kiện:  AFTER INSERT, UPDATE
--- Mục đích: Chặn vi phạm nghiệp vụ R15:
---           Chỉ phiếu xuất có lý do = N'RETURN' mới được phép
---           gắn nhà cung cấp nhận hàng trong bảng RETURN_SUPPLIER.
---           Nếu lý do là SPOILED OR BROKEN hoặc EXPIRED thì
---           THROW lỗi và ROLLBACK.
--- -------------------------------------------------------------
+-- 3. Chan gan NCC nhan hang neu ly do xuat khong phai RETURN (R15)
 CREATE OR ALTER TRIGGER WAREHOUSE.TRG_RETURN_SUPPLIER_REASON
 ON WAREHOUSE.RETURN_SUPPLIER
 AFTER INSERT, UPDATE
@@ -246,27 +177,10 @@ BEGIN
 END;
 GO
 
-PRINT N'✓ Tạo TRIGGER WAREHOUSE.TRG_RETURN_SUPPLIER_REASON thành công';
-GO
 
+-- ==================== STORED PROCEDURES ====================
 
--- =============================================================
--- PHẦN 3: STORED PROCEDURES (Giai đoạn 2 - 16-17/11)
--- =============================================================
-
--- -------------------------------------------------------------
--- PROCEDURE 1: SP_APPROVE_EXPORT_RECEIPT
--- Mục đích: Quản lý duyệt 1 phiếu xuất kho.
--- Tham số:
---   @ExportReceiptId INT : Mã phiếu xuất cần duyệt
---   @ManagerId       INT : Mã nhân viên quản lý thực hiện duyệt
--- Nghiệp vụ:
---   1. Kiểm tra phiếu tồn tại và đang ở trạng thái chưa duyệt.
---   2. Kiểm tra Manager hợp lệ (có trong bảng HR.MANAGER).
---   3. Cập nhật MANAGER_ID và APPROVE_TIME → Trigger
---      TRG_EXPORT_APPROVE_SUB_STOCK tự động trừ tồn kho.
---      (Nếu xuất vượt tồn, CHECK constraint sẽ tự rollback)
--- -------------------------------------------------------------
+-- 1. Duyet phieu xuat (cap nhat MANAGER_ID de trigger tu tru kho)
 CREATE OR ALTER PROCEDURE WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT
     @ExportReceiptId INT,
     @ManagerId       INT
@@ -274,7 +188,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- 1. Kiểm tra phiếu xuất có tồn tại không
     IF NOT EXISTS (
         SELECT 1 FROM WAREHOUSE.EXPORT_RECEIPT
         WHERE EXPORT_RECEIPT_ID = @ExportReceiptId
@@ -284,7 +197,6 @@ BEGIN
         RETURN;
     END
 
-    -- 2. Kiểm tra phiếu đã duyệt chưa
     IF EXISTS (
         SELECT 1 FROM WAREHOUSE.EXPORT_RECEIPT
         WHERE EXPORT_RECEIPT_ID = @ExportReceiptId
@@ -295,7 +207,6 @@ BEGIN
         RETURN;
     END
 
-    -- 3. Kiểm tra Manager hợp lệ
     IF NOT EXISTS (
         SELECT 1 FROM HR.MANAGER
         WHERE EMPLOYEE_ID = @ManagerId
@@ -305,33 +216,14 @@ BEGIN
         RETURN;
     END
 
-    -- 4. Duyệt phiếu (Trigger TRG_EXPORT_APPROVE_SUB_STOCK sẽ tự trừ kho)
     UPDATE WAREHOUSE.EXPORT_RECEIPT
     SET MANAGER_ID   = @ManagerId,
         APPROVE_TIME = GETDATE()
     WHERE EXPORT_RECEIPT_ID = @ExportReceiptId;
-
-    PRINT N'✓ Duyệt phiếu xuất #' + CAST(@ExportReceiptId AS NVARCHAR) + N' thành công.';
 END;
 GO
 
-PRINT N'✓ Tạo PROCEDURE WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT thành công';
-GO
-
-
--- -------------------------------------------------------------
--- PROCEDURE 2: SP_APPROVE_STOCK_CHECK
--- Mục đích: Quản lý duyệt 1 phiếu kiểm kê.
--- Tham số:
---   @StockCheckId INT : Mã phiếu kiểm kê cần duyệt
---   @ManagerId    INT : Mã nhân viên quản lý thực hiện duyệt
--- Nghiệp vụ:
---   1. Kiểm tra phiếu tồn tại và đang ở trạng thái WAITING FOR APPROVAL.
---   2. Kiểm tra Manager hợp lệ.
---   3. Đổi STATUS = 'APPROVED', ghi MANAGER_ID và APPROVE_TIME.
---   4. Cập nhật CURRENT_STOCK = ACTUAL_QUANTITY cho các sản phẩm
---      trong phiếu kiểm kê (trong cùng 1 Transaction).
--- -------------------------------------------------------------
+-- 2. Duyet phieu kiem ke va cap nhat ton kho theo so thuc te
 CREATE OR ALTER PROCEDURE WAREHOUSE.SP_APPROVE_STOCK_CHECK
     @StockCheckId INT,
     @ManagerId    INT
@@ -339,7 +231,6 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- 1. Kiểm tra phiếu kiểm kê có tồn tại không
     IF NOT EXISTS (
         SELECT 1 FROM WAREHOUSE.STOCK_CHECK
         WHERE STOCK_CHECK_ID = @StockCheckId
@@ -349,7 +240,6 @@ BEGIN
         RETURN;
     END
 
-    -- 2. Kiểm tra phiếu đang ở trạng thái chờ duyệt
     IF NOT EXISTS (
         SELECT 1 FROM WAREHOUSE.STOCK_CHECK
         WHERE STOCK_CHECK_ID = @StockCheckId
@@ -360,7 +250,6 @@ BEGIN
         RETURN;
     END
 
-    -- 3. Kiểm tra Manager hợp lệ
     IF NOT EXISTS (
         SELECT 1 FROM HR.MANAGER
         WHERE EMPLOYEE_ID = @ManagerId
@@ -372,14 +261,12 @@ BEGIN
 
     BEGIN TRANSACTION;
     BEGIN TRY
-        -- Bước 1: Cập nhật trạng thái phiếu kiểm kê sang APPROVED
         UPDATE WAREHOUSE.STOCK_CHECK
         SET STATUS       = N'APPROVED',
             MANAGER_ID   = @ManagerId,
             APPROVE_TIME = GETDATE()
         WHERE STOCK_CHECK_ID = @StockCheckId;
 
-        -- Bước 2: Đồng bộ tồn kho: CURRENT_STOCK = ACTUAL_QUANTITY
         UPDATE p
         SET p.CURRENT_STOCK = cd.ACTUAL_QUANTITY
         FROM CATALOG.PRODUCT p
@@ -388,7 +275,6 @@ BEGIN
         WHERE cd.STOCK_CHECK_ID = @StockCheckId;
 
         COMMIT TRANSACTION;
-        PRINT N'✓ Duyệt phiếu kiểm kê #' + CAST(@StockCheckId AS NVARCHAR) + N' thành công.';
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
@@ -396,9 +282,3 @@ BEGIN
     END CATCH;
 END;
 GO
-
-PRINT N'✓ Tạo PROCEDURE WAREHOUSE.SP_APPROVE_STOCK_CHECK thành công';
-GO
-
-
-
