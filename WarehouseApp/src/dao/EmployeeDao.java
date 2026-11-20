@@ -195,4 +195,90 @@ public class EmployeeDAO extends BaseDAO<Employee, Integer> {
             return ps.executeUpdate() > 0;
         }
     }
+
+    public Integer insert(Employee obj, String password) throws SQLException {
+    String sqlAcc = "INSERT INTO HR.ACCOUNT (USERNAME, PASSWORD) VALUES (?, ?)";
+    String sqlEmp = "INSERT INTO HR.EMPLOYEE (USERNAME, FIRST_NAME, LAST_NAME, START_DATE, DATE_OF_BIRTH, ADDRESS) " +
+                    "VALUES (?, ?, ?, ?, ?, ?)";
+    String sqlPhone = "INSERT INTO HR.EMPLOYEE_PHONE_NUMBER (EMPLOYEE_ID, PHONE_NUMBER) VALUES (?, ?)";
+
+    try (Connection conn = getConnection()) {
+        conn.setAutoCommit(false);
+        try {
+            // Bảng 1: HR.ACCOUNT
+            try (PreparedStatement psAcc = conn.prepareStatement(sqlAcc)) {
+                psAcc.setString(1, obj.getUsername());
+                psAcc.setString(2, password);
+                psAcc.executeUpdate();
+            }
+
+            // Bảng 2: HR.EMPLOYEE
+            int newId;
+            try (PreparedStatement psEmp = conn.prepareStatement(sqlEmp, Statement.RETURN_GENERATED_KEYS)) {
+                psEmp.setString(1, obj.getUsername());
+                psEmp.setString(2, obj.getFirstName());
+                psEmp.setString(3, obj.getLastName());
+                psEmp.setDate(4, Date.valueOf(obj.getStartDate()));
+                psEmp.setDate(5, Date.valueOf(obj.getDateOfBirth()));
+                psEmp.setString(6, obj.getAddress());
+                psEmp.executeUpdate();
+
+                try (ResultSet keys = psEmp.getGeneratedKeys()) {
+                    if (keys.next()) {
+                        newId = keys.getInt(1);
+                        obj.setEmployeeId(newId);
+                    } else {
+                        throw new SQLException("Không lấy được EMPLOYEE_ID vừa sinh.");
+                    }
+                }
+            }
+
+                // Bảng 3: Bảng vai trò (HR.MANAGER / HR.CASHIER / HR.WAREHOUSE_STAFF)
+                if (obj instanceof Manager m) {
+                    try (PreparedStatement psRole = conn.prepareStatement(
+                            "INSERT INTO HR.MANAGER (EMPLOYEE_ID, BONUS) VALUES (?, ?)")) {
+                        psRole.setInt(1, newId);
+                        psRole.setBigDecimal(2, m.getBonus());
+                        psRole.executeUpdate();
+                    }
+                    } else if (obj instanceof Cashier c) {
+                        try (PreparedStatement psRole = conn.prepareStatement(
+                            "INSERT INTO HR.CASHIER (EMPLOYEE_ID, MANAGER_ID, ASSIGNED_COUNTER) VALUES (?, ?, ?)")) {
+                        psRole.setInt(1, newId);
+                        psRole.setInt(2, c.getManagerId());
+                        psRole.setInt(3, c.getAssignedCounter());
+                        psRole.executeUpdate();
+                    }
+                } else if (obj instanceof WarehouseStaff w) {
+                    try (PreparedStatement psRole = conn.prepareStatement(
+                            "INSERT INTO HR.WAREHOUSE_STAFF (EMPLOYEE_ID, MANAGER_ID, ASSIGNED_ZONE) VALUES (?, ?, ?)")) {
+                        psRole.setInt(1, newId);
+                        psRole.setInt(2, w.getManagerId());
+                        psRole.setString(3, w.getAssignedZone());
+                        psRole.executeUpdate();
+                    }
+                }
+
+                // Bảng phụ: HR.EMPLOYEE_PHONE_NUMBER (nếu có SĐT)
+                if (obj.getPhoneNumbers() != null && !obj.getPhoneNumbers().isEmpty()) {
+                    try (PreparedStatement psPhone = conn.prepareStatement(sqlPhone)) {
+                        for (String phone : obj.getPhoneNumbers()) {
+                            psPhone.setInt(1, newId);
+                            psPhone.setString(2, phone);
+                            psPhone.addBatch();
+                        }
+                        psPhone.executeBatch();
+                    }
+                }
+
+                conn.commit();
+                return newId;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        }
+    }
 }

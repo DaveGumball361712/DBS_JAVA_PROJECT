@@ -96,4 +96,32 @@ public class CategoryDAO extends BaseDAO<Category, Integer> {
             return ps.executeUpdate() > 0;
         }
     }
+
+    public javax.swing.tree.DefaultMutableTreeNode findTree() throws SQLException {
+    List<Category> all = findAll();
+    javax.swing.tree.DefaultMutableTreeNode root =
+            new javax.swing.tree.DefaultMutableTreeNode("Tất cả danh mục");
+
+    java.util.Map<Integer, javax.swing.tree.DefaultMutableTreeNode> nodeMap = new java.util.HashMap<>();
+    for (Category c : all) {
+        nodeMap.put(c.getCategoryId(), new javax.swing.tree.DefaultMutableTreeNode(c));
+    }
+
+    for (Category c : all) {
+        javax.swing.tree.DefaultMutableTreeNode currentNode = nodeMap.get(c.getCategoryId());
+        if (c.getParentCategoryId() == null) {
+            root.add(currentNode);
+        } else {
+            javax.swing.tree.DefaultMutableTreeNode parentNode = nodeMap.get(c.getParentCategoryId());
+            if (parentNode != null) {
+                parentNode.add(currentNode);
+            } else {
+                root.add(currentNode);
+            }
+        }
+    }
+    return root;
+    }
+
 }
+
