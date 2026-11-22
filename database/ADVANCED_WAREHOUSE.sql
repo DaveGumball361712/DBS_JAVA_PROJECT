@@ -1,7 +1,7 @@
 USE WAREHOUSEMANAGEMENT;
 GO
 
--- ==================== VIEWS ====================
+--VIEWS
 
 -- 1. Tong tien tung phieu nhap (R12)
 CREATE OR ALTER VIEW WAREHOUSE.V_IMPORT_RECEIPT_TOTAL
@@ -100,8 +100,7 @@ GROUP BY
 GO
 
 
--- ==================== TRIGGERS ====================
-
+-- TRIGGERS
 -- 1. Cong ton kho khi them dong phieu nhap (ho tro insert nhieu dong)
 CREATE OR ALTER TRIGGER WAREHOUSE.TRG_INCLUDES_ADD_STOCK
 ON WAREHOUSE.INCLUDES
@@ -178,7 +177,7 @@ END;
 GO
 
 
--- ==================== STORED PROCEDURES ====================
+--STORED PROCEDURES
 
 -- 1. Duyet phieu xuat (cap nhat MANAGER_ID de trigger tu tru kho)
 CREATE OR ALTER PROCEDURE WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT
@@ -223,7 +222,7 @@ BEGIN
 END;
 GO
 
--- 2. Duyet phieu kiem ke va cap nhat ton kho theo so thuc te
+-- 2. Duyet phieu kiem ke (Trigger TRG_STOCK_CHECK_APPROVE tu cap nhat ton kho theo so thuc te)
 CREATE OR ALTER PROCEDURE WAREHOUSE.SP_APPROVE_STOCK_CHECK
     @StockCheckId INT,
     @ManagerId    INT
@@ -259,26 +258,10 @@ BEGIN
         RETURN;
     END
 
-    BEGIN TRANSACTION;
-    BEGIN TRY
-        UPDATE WAREHOUSE.STOCK_CHECK
-        SET STATUS       = N'APPROVED',
-            MANAGER_ID   = @ManagerId,
-            APPROVE_TIME = GETDATE()
-        WHERE STOCK_CHECK_ID = @StockCheckId;
-
-        UPDATE p
-        SET p.CURRENT_STOCK = cd.ACTUAL_QUANTITY
-        FROM CATALOG.PRODUCT p
-        JOIN WAREHOUSE.CHECK_DETAIL cd
-            ON p.PRODUCT_ID = cd.PRODUCT_ID
-        WHERE cd.STOCK_CHECK_ID = @StockCheckId;
-
-        COMMIT TRANSACTION;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-        ;THROW;
-    END CATCH;
+    UPDATE WAREHOUSE.STOCK_CHECK
+    SET STATUS       = N'APPROVED',
+        MANAGER_ID   = @ManagerId,
+        APPROVE_TIME = GETDATE()
+    WHERE STOCK_CHECK_ID = @StockCheckId;
 END;
 GO

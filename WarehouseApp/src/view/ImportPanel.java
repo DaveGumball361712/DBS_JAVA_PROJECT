@@ -1,9 +1,14 @@
 package view;
 
+import dao.ImportReceiptDAO;
+import dao.ProductDAO;
+import dao.SupplierDAO;
 import model.ImportLine;
 import model.ImportReceipt;
 import model.Product;
 import model.Supplier;
+import util.ErrorHandler;
+import util.Session;
 
 import javax.swing.*;
 import javax.swing.event.TableModelEvent;
@@ -11,18 +16,25 @@ import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
-// Tab lap phieu nhap kho
+// Tab lap phieu nhap kho (noi DB that qua DAO)
 public class ImportPanel extends JPanel {
+
+    private final SupplierDAO supplierDAO = new SupplierDAO();
+    private final ProductDAO productDAO = new ProductDAO();
+    private final ImportReceiptDAO importReceiptDAO = new ImportReceiptDAO();
 
     private DefaultTableModel tableModel;
     private TableModelListener tableListener;
     private JTable importTable;
     private JLabel lblTotal;
-    private List<Supplier> suppliers;
+    private List<Supplier> suppliers = new ArrayList<>();
+    private List<Product> products = new ArrayList<>();
     private JComboBox<String> supplierCombo;
     private JTextField txtNote;
 
@@ -40,12 +52,8 @@ public class ImportPanel extends JPanel {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
 
         panel.add(new JLabel("Nhà cung cấp:"));
-        suppliers = MockData.getSuppliers();
-        String[] supplierNames = new String[suppliers.size()];
-        for (int i = 0; i < suppliers.size(); i++) {
-            supplierNames[i] = suppliers.get(i).getName();
-        }
-        supplierCombo = new JComboBox<>(supplierNames);
+        supplierCombo = new JComboBox<>();
+        loadSuppliers();
         panel.add(supplierCombo);
 
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
@@ -56,6 +64,18 @@ public class ImportPanel extends JPanel {
         panel.add(txtNote);
 
         return panel;
+    }
+
+    private void loadSuppliers() {
+        try {
+            suppliers = supplierDAO.findAll();
+            supplierCombo.removeAllItems();
+            for (Supplier s : suppliers) {
+                supplierCombo.addItem(s.getName());
+            }
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+        }
     }
 
     // Bang danh sach mat hang nhap
@@ -112,8 +132,28 @@ public class ImportPanel extends JPanel {
         return panel;
     }
 
+    private Product findProductByName(String name) {
+        for (Product p : products) {
+            if (p.getName().equals(name)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
     private void addRow() {
-        List<Product> products = MockData.getProducts();
+        try {
+            products = productDAO.findAll();
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+            return;
+        }
+
+        if (products.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Không có sản phẩm nào trong kho!", "Thông báo", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         String[] productNames = new String[products.size()];
         for (int i = 0; i < products.size(); i++) {
             productNames[i] = products.get(i).getName();
@@ -142,7 +182,7 @@ public class ImportPanel extends JPanel {
             }
         }
 
-        Product p = MockData.findProductByName(selectedName);
+        Product p = findProductByName(selectedName);
         if (p == null) return;
 
         BigDecimal defaultPrice = p.getCurrentPrice();
@@ -188,6 +228,10 @@ public class ImportPanel extends JPanel {
     }
 
     private void saveReceipt() {
+        if (importTable.isEditing()) {
+            importTable.getCellEditor().stopCellEditing();
+        }
+
         if (tableModel.getRowCount() == 0) {
             JOptionPane.showMessageDialog(this,
                 "Phiếu nhập phải có ít nhất 1 dòng sản phẩm!",
@@ -204,9 +248,10 @@ public class ImportPanel extends JPanel {
         }
         Supplier selectedSupplier = suppliers.get(idx);
 
-        // Tao model ImportReceipt de chuan bi truyen vao DAO
+        int employeeId = Session.currentUser != null ? Session.currentUser.getEmployeeId() : 101;
+
         ImportReceipt receipt = new ImportReceipt();
-        receipt.setEmployeeId(101); // tam dung id co dinh, sau lay tu Session
+        receipt.setEmployeeId(employeeId);
         receipt.setSupplierId(selectedSupplier.getSupplierId());
         receipt.setImportDate(LocalDateTime.now());
         receipt.setDescription(txtNote.getText().trim());
@@ -230,7 +275,7 @@ public class ImportPanel extends JPanel {
                     return;
                 }
 
-                Product p = MockData.findProductByName(productName);
+                Product p = findProductByName(productName);
                 if (p != null) {
                     receipt.getLines().add(new ImportLine(0, p.getProductId(), price, qty));
                 }
@@ -242,21 +287,28 @@ public class ImportPanel extends JPanel {
             }
         }
 
-        StringBuilder summary = new StringBuilder();
-        summary.append("PHIẾU NHẬP KHO\n");
-        summary.append("─────────────────────────\n");
-        summary.append("NCC: ").append(selectedSupplier.getName()).append(" (ID: ").append(receipt.getSupplierId()).append(")\n");
-        summary.append("Ghi chú: ").append(receipt.getDescription()).append("\n");
-        summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
-        summary.append(String.format("Tổng tiền (model): %,.0f VNĐ\n", receipt.getTotal()));
-        summary.append("─────────────────────────\n");
-        summary.append("Trạng thái: ĐÃ ĐÓNG GÓI MODEL THÀNH CÔNG");
+        // Luu xuong SQL Server (Trigger TRG_INCLUDES_ADD_STOCK tu cong ton kho)
+        try {
+            int newId = importReceiptDAO.insert(receipt);
 
-        JOptionPane.showMessageDialog(this, summary.toString(),
-            "Lưu phiếu nhập thành công", JOptionPane.INFORMATION_MESSAGE);
+            StringBuilder summary = new StringBuilder();
+            summary.append("PHIẾU NHẬP KHO #").append(newId).append("\n");
+            summary.append("─────────────────────────\n");
+            summary.append("NCC: ").append(selectedSupplier.getName()).append("\n");
+            summary.append("Ghi chú: ").append(receipt.getDescription()).append("\n");
+            summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
+            summary.append(String.format("Tổng tiền: %,.0f VNĐ\n", receipt.getTotal()));
+            summary.append("─────────────────────────\n");
+            summary.append("Đã lưu vào cơ sở dữ liệu và cập nhật tồn kho!");
 
-        tableModel.setRowCount(0);
-        txtNote.setText("");
-        updateTotal();
+            JOptionPane.showMessageDialog(this, summary.toString(),
+                "Lưu phiếu nhập thành công", JOptionPane.INFORMATION_MESSAGE);
+
+            tableModel.setRowCount(0);
+            txtNote.setText("");
+            updateTotal();
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+        }
     }
 }

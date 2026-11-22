@@ -1,9 +1,13 @@
 package view;
 
+import dao.ProductDAO;
+import dao.StockCheckDAO;
 import model.CheckDetail;
 import model.Product;
 import model.StockCheck;
 import model.StockCheckStatus;
+import util.ErrorHandler;
+import util.Session;
 
 import javax.swing.*;
 import javax.swing.event.TableModelEvent;
@@ -11,11 +15,16 @@ import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
-// Tab lap phieu kiem ke
+// Tab lap phieu kiem ke (noi DB that qua DAO)
 public class StockCheckPanel extends JPanel {
+
+    private final ProductDAO productDAO = new ProductDAO();
+    private final StockCheckDAO stockCheckDAO = new StockCheckDAO();
 
     private DefaultTableModel tableModel;
     private TableModelListener tableListener;
@@ -105,9 +114,17 @@ public class StockCheckPanel extends JPanel {
             if (confirm != JOptionPane.YES_OPTION) return;
         }
 
-        // Load toan bo san pham, mac dinh so thuc te = so he thong
+        // Load danh sach san pham va ton kho moi nhat tu SQL Server
+        List<Product> products;
+        try {
+            products = productDAO.findAll();
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+            return;
+        }
+
         tableModel.setRowCount(0);
-        for (Product p : MockData.getProducts()) {
+        for (Product p : products) {
             int systemQty = p.getCurrentStock();
             tableModel.addRow(new Object[]{
                 p.getProductId(),
@@ -147,8 +164,14 @@ public class StockCheckPanel extends JPanel {
     }
 
     private void saveStockCheck() {
+        if (checkTable.isEditing()) {
+            checkTable.getCellEditor().stopCellEditing();
+        }
+
+        int employeeId = Session.currentUser != null ? Session.currentUser.getEmployeeId() : 101;
+
         StockCheck stockCheck = new StockCheck();
-        stockCheck.setEmployeeId(101);
+        stockCheck.setEmployeeId(employeeId);
         stockCheck.setManagerId(null);
         stockCheck.setCheckDate(LocalDate.now());
         stockCheck.setStatus(StockCheckStatus.WAITING_FOR_APPROVAL);
@@ -179,24 +202,30 @@ public class StockCheckPanel extends JPanel {
             }
         }
 
-        StringBuilder summary = new StringBuilder();
-        summary.append("PHIẾU KIỂM KÊ\n");
-        summary.append("─────────────────────────\n");
-        summary.append("Tổng sản phẩm kiểm: ").append(stockCheck.getDetails().size()).append("\n");
-        summary.append("Số SP có chênh lệch: ").append(diffCount).append("\n");
-        summary.append("Số SP khớp kho: ").append(stockCheck.getDetails().size() - diffCount).append("\n");
-        summary.append("─────────────────────────\n");
-        summary.append("Trạng thái: ").append(stockCheck.getStatus().getDisplayName())
-               .append(" [").append(stockCheck.getStatus().getDbValue()).append("]\n");
-        summary.append("(Quản lý sẽ duyệt trên màn hình Duyệt phiếu)");
+        // Luu phieu kiem ke xuong SQL Server o trang thai cho duyet
+        try {
+            int newId = stockCheckDAO.insert(stockCheck);
 
-        JOptionPane.showMessageDialog(this, summary.toString(),
-            "Lưu phiếu kiểm kê thành công", JOptionPane.INFORMATION_MESSAGE);
+            StringBuilder summary = new StringBuilder();
+            summary.append("PHIẾU KIỂM KÊ #").append(newId).append("\n");
+            summary.append("─────────────────────────\n");
+            summary.append("Tổng sản phẩm kiểm: ").append(stockCheck.getDetails().size()).append("\n");
+            summary.append("Số SP có chênh lệch: ").append(diffCount).append("\n");
+            summary.append("Số SP khớp kho: ").append(stockCheck.getDetails().size() - diffCount).append("\n");
+            summary.append("─────────────────────────\n");
+            summary.append("Trạng thái: ").append(stockCheck.getStatus().getDisplayName()).append("\n");
+            summary.append("(Đã lưu vào cơ sở dữ liệu, chờ Quản lý duyệt)");
 
-        isEditing = false;
-        btnSave.setEnabled(false);
-        lblStatus.setText("ĐÃ LƯU - " + stockCheck.getStatus().getDisplayName().toUpperCase());
-        lblStatus.setForeground(new Color(0, 130, 0));
+            JOptionPane.showMessageDialog(this, summary.toString(),
+                "Lưu phiếu kiểm kê thành công", JOptionPane.INFORMATION_MESSAGE);
+
+            isEditing = false;
+            btnSave.setEnabled(false);
+            lblStatus.setText("ĐÃ LƯU #" + newId + " - " + stockCheck.getStatus().getDisplayName().toUpperCase());
+            lblStatus.setForeground(new Color(0, 130, 0));
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+        }
     }
 
     // To mau cot chenh lech: thieu to do, thua to xanh
