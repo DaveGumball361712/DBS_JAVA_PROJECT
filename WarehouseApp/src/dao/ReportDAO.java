@@ -9,7 +9,6 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-
 import util.DBConnection;
 public class ReportDAO {
     public List<Object[]> revenueByDay(LocalDate from, LocalDate to) throws SQLException {
@@ -32,15 +31,32 @@ public class ReportDAO {
     }
 
     // View cua Dat: doanh thu theo thu ngan
-    public List<Object[]> revenueByCashier() throws SQLException {
-        return query("SELECT FULL_NAME, ORDER_COUNT, REVENUE FROM SALES.V_REVENUE_BY_CASHIER "
-                + "ORDER BY REVENUE DESC");
+    public List<Object[]> revenueByCashier(LocalDate from, LocalDate to) throws SQLException {
+        return callRange("{call SALES.SP_REVENUE_BY_CASHIER(?, ?)}", from, to);
     }
-
-    // View cua Dat: san pham ban chay (RANK theo so luong)
-    public List<Object[]> topProducts() throws SQLException {
-        return query("SELECT TOP 20 RANK_NO, PRODUCT_ID, NAME, TOTAL_QTY, TOTAL_REVENUE "
-                + "FROM SALES.V_TOP_PRODUCTS ORDER BY RANK_NO");
+ 
+    public List<Object[]> topProducts(LocalDate from, LocalDate to) throws SQLException {
+        return callRange("{call SALES.SP_TOP_PRODUCTS(?, ?, 20)}", from, to);
+    }
+ 
+    private List<Object[]> callRange(String call, LocalDate from, LocalDate to) throws SQLException {
+        try (Connection conn = DBConnection.getConnection();
+            CallableStatement cs = conn.prepareCall(call)) {
+            cs.setDate(1, Date.valueOf(from));
+            cs.setDate(2, Date.valueOf(to));
+            try (ResultSet rs = cs.executeQuery()) {
+                int n = rs.getMetaData().getColumnCount();
+                List<Object[]> rows = new ArrayList<>();
+                while (rs.next()) {
+                    Object[] row = new Object[n];
+                    for (int i = 0; i < n; i++) {
+                        row[i] = rs.getObject(i + 1);
+                    }
+                    rows.add(row);
+                }
+                return rows;
+            }
+        }
     }
 
     public List<Object[]> lowStock() throws SQLException {

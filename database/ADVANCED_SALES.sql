@@ -299,7 +299,7 @@ BEGIN
     IF @from_date > @to_date
         THROW 50006, N'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc', 1;
 
-    SELECT TOP (@top_n) *
+    SELECT TOP (@top_n) RANK_NO, PRODUCT_ID, NAME, TOTAL_QTY, TOTAL_REVENUE
     FROM (
         SELECT p.PRODUCT_ID,
                p.NAME,
