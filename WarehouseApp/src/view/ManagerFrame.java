@@ -3,10 +3,15 @@ package view;
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.border.Border;
+import util.Session;
 
 public class ManagerFrame extends JFrame {
 
     private final JTabbedPane tabs=new JTabbedPane();
+    // Dung khi dang nhap: lay ten nguoi dung tu Session
+    public ManagerFrame() {
+        this(Session.currentUser != null ? Session.currentUser.getFullName() : "Quan ly");
+    }
     public ManagerFrame(String managerName){
         setTitle("Quan ly kho & Ban hang - Quan ly");
         setSize(1000,650);
@@ -34,7 +39,11 @@ public class ManagerFrame extends JFrame {
         header.add(hello,BorderLayout.WEST);
 
         JButton logout = new JButton("Đăng xuất");
-        logout.addActionListener(e -> dispose());
+        logout.addActionListener(e -> {
+            Session.logout();
+            dispose();
+            new LoginFrame().setVisible(true);
+        });
         header.add(logout, BorderLayout.EAST);
         return header;
     }

@@ -72,7 +72,7 @@ public abstract class Employee {
         this.lastName = lastName;
     }
 
-    public LocalDate getStartdDate(){
+    public LocalDate getStartDate(){
         return startDate;
     }
 

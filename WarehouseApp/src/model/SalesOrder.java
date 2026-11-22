@@ -19,7 +19,7 @@ public class SalesOrder {
     }
 
     public SalesOrder(int salesOrderId, Integer customerId, int employeeId,
-                      LocalDateTime orderDate, OrderStatus status, BigDecimal discount) {
+                    LocalDateTime orderDate, OrderStatus status, BigDecimal discount) {
         this.salesOrderId = salesOrderId;
         this.customerId = customerId;
         this.employeeId = employeeId;
