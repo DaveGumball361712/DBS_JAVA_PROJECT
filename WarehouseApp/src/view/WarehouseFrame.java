@@ -3,15 +3,7 @@ package view;
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * Cửa sổ chính của Thủ kho (Warehouse Staff).
- * Chứa JTabbedPane với 3 tab nghiệp vụ:
- *   1. Phiếu Nhập kho (ImportPanel)
- *   2. Phiếu Xuất kho (ExportPanel)
- *   3. Kiểm Kê (StockCheckPanel)
- *
- * Giai đoạn 2: Đức sẽ viết LoginFrame → xác định vai trò → mở frame này.
- */
+// Frame chinh cua thu kho gom 3 tab: Nhap, Xuat, Kiem ke
 public class WarehouseFrame extends JFrame {
 
     public WarehouseFrame() {
@@ -20,7 +12,6 @@ public class WarehouseFrame extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // Tạo JTabbedPane chứa 3 tab
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.setFont(tabbedPane.getFont().deriveFont(14f));
 
@@ -32,7 +23,6 @@ public class WarehouseFrame extends JFrame {
     }
 
     public static void main(String[] args) {
-        // Chạy UI trên Event Dispatch Thread (quy tắc bắt buộc của Swing)
         SwingUtilities.invokeLater(() -> {
             new WarehouseFrame().setVisible(true);
         });

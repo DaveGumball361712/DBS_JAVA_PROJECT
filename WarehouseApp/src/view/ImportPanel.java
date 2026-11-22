@@ -1,28 +1,28 @@
 package view;
 
+import model.ImportLine;
+import model.ImportReceipt;
+import model.Product;
+import model.Supplier;
+
 import javax.swing.*;
 import javax.swing.event.TableModelEvent;
+import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
-/**
- * Màn hình Lập Phiếu Nhập Kho (cho Thủ kho).
- * Tương ứng bảng: WAREHOUSE.IMPORT_RECEIPT + WAREHOUSE.INCLUDES
- *
- * Chức năng:
- * - Chọn nhà cung cấp, tự động ghi ngày lập, nhập ghi chú
- * - Thêm/Xóa dòng sản phẩm nhập kho
- * - Tự động tính Thành tiền = Số lượng × Giá nhập
- * - Tự động cập nhật Tổng tiền phiếu
- * - Validate trước khi lưu: ít nhất 1 dòng, không trùng SP, SL > 0
- */
+// Tab lap phieu nhap kho
 public class ImportPanel extends JPanel {
 
-    private DefaultTableModel  tableModel;
+    private DefaultTableModel tableModel;
+    private TableModelListener tableListener;
     private JTable importTable;
     private JLabel lblTotal;
+    private List<Supplier> suppliers;
     private JComboBox<String> supplierCombo;
     private JTextField txtNote;
 
@@ -35,12 +35,17 @@ public class ImportPanel extends JPanel {
         add(createButtonPanel(), BorderLayout.SOUTH);
     }
 
-    // ========== PANEL TRÊN: Thông tin chung phiếu nhập ==========
+    // Thong tin chung phieu nhap (NCC, ngay lap, ghi chu)
     private JPanel createInfoPanel() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
 
         panel.add(new JLabel("Nhà cung cấp:"));
-        supplierCombo = new JComboBox<>(MockData.SUPPLIER_NAMES);
+        suppliers = MockData.getSuppliers();
+        String[] supplierNames = new String[suppliers.size()];
+        for (int i = 0; i < suppliers.size(); i++) {
+            supplierNames[i] = suppliers.get(i).getName();
+        }
+        supplierCombo = new JComboBox<>(supplierNames);
         panel.add(supplierCombo);
 
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
@@ -53,14 +58,13 @@ public class ImportPanel extends JPanel {
         return panel;
     }
 
-    // ========== PANEL GIỮA: Bảng chi tiết hàng nhập ==========
+    // Bang danh sach mat hang nhap
     private JScrollPane createTablePanel() {
         String[] columns = {"Sản phẩm", "Số lượng", "Giá nhập", "Thành tiền"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
-                // Chỉ cho sửa cột Số lượng (1) và Giá nhập (2)
-                // Cột Sản phẩm (0) và Thành tiền (3) chỉ đọc
+                // Chi cho sua so luong va gia nhap
                 return col == 1 || col == 2;
             }
         };
@@ -69,23 +73,22 @@ public class ImportPanel extends JPanel {
         importTable.setRowHeight(28);
         importTable.getTableHeader().setReorderingAllowed(false);
 
-        // Lắng nghe khi người dùng sửa ô trong bảng → tính lại Thành tiền
-        tableModel.addTableModelListener(e -> {
+        // Tu tinh lai thanh tien va tong tien khi sua o
+        tableListener = e -> {
             if (e.getType() == TableModelEvent.UPDATE) {
-                int row = e.getFirstRow();
                 int col = e.getColumn();
-                // Chỉ tính lại khi sửa cột Số lượng (1) hoặc Giá nhập (2)
                 if (col == 1 || col == 2) {
-                    recalculateRow(row);
+                    recalculateRow(e.getFirstRow());
                     updateTotal();
                 }
             }
-        });
+        };
+        tableModel.addTableModelListener(tableListener);
 
         return new JScrollPane(importTable);
     }
 
-    // ========== PANEL DƯỚI: Nút thao tác và Tổng tiền ==========
+    // Thanh nut bam va tong tien
     private JPanel createButtonPanel() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5));
 
@@ -109,41 +112,44 @@ public class ImportPanel extends JPanel {
         return panel;
     }
 
-    // ==================== XỬ LÝ SỰ KIỆN ====================
-
-    /** Thêm 1 dòng hàng mới: hiện hộp thoại chọn sản phẩm */
     private void addRow() {
-        String selected = (String) JOptionPane.showInputDialog(
+        List<Product> products = MockData.getProducts();
+        String[] productNames = new String[products.size()];
+        for (int i = 0; i < products.size(); i++) {
+            productNames[i] = products.get(i).getName();
+        }
+
+        String selectedName = (String) JOptionPane.showInputDialog(
             this,
             "Chọn sản phẩm cần nhập:",
             "Thêm dòng nhập kho",
             JOptionPane.PLAIN_MESSAGE,
             null,
-            MockData.PRODUCT_NAMES,
-            MockData.PRODUCT_NAMES[0]
+            productNames,
+            productNames[0]
         );
 
-        if (selected == null) return; // Người dùng bấm Cancel
+        if (selectedName == null) return;
 
-        // Kiểm tra trùng sản phẩm trong phiếu
+        // Khong cho them trung san pham trong cung 1 phieu
         for (int i = 0; i < tableModel.getRowCount(); i++) {
-            if (selected.equals(tableModel.getValueAt(i, 0))) {
+            if (selectedName.equals(tableModel.getValueAt(i, 0))) {
                 JOptionPane.showMessageDialog(this,
-                    "Sản phẩm \"" + selected + "\" đã có trong phiếu!\n"
+                    "Sản phẩm \"" + selectedName + "\" đã có trong phiếu!\n"
                     + "Hãy sửa số lượng ở dòng " + (i + 1) + " thay vì thêm mới.",
                     "Trùng sản phẩm", JOptionPane.WARNING_MESSAGE);
                 return;
             }
         }
 
-        // Thêm dòng mới: Sản phẩm, Số lượng = 1, Giá nhập = giá bán mặc định, Thành tiền
-        int idx = MockData.findProductIndex(selected);
-        double defaultPrice = MockData.PRODUCT_PRICES[idx];
-        tableModel.addRow(new Object[]{selected, 1, defaultPrice, defaultPrice});
+        Product p = MockData.findProductByName(selectedName);
+        if (p == null) return;
+
+        BigDecimal defaultPrice = p.getCurrentPrice();
+        tableModel.addRow(new Object[]{p.getName(), 1, defaultPrice, defaultPrice});
         updateTotal();
     }
 
-    /** Xóa dòng đang chọn */
     private void removeRow() {
         int selectedRow = importTable.getSelectedRow();
         if (selectedRow == -1) {
@@ -156,39 +162,32 @@ public class ImportPanel extends JPanel {
         updateTotal();
     }
 
-    /** Tính lại Thành tiền của 1 dòng */
     private void recalculateRow(int row) {
         try {
-            int qty = Integer.parseInt(tableModel.getValueAt(row, 1).toString());
-            double price = Double.parseDouble(tableModel.getValueAt(row, 2).toString());
-            // Tạm tắt listener để tránh gọi đệ quy khi set cột Thành tiền
-            tableModel.removeTableModelListener(tableModel.getTableModelListeners()[0]);
-            tableModel.setValueAt(qty * price, row, 3);
-            tableModel.addTableModelListener(e -> {
-                if (e.getType() == TableModelEvent.UPDATE && (e.getColumn() == 1 || e.getColumn() == 2)) {
-                    recalculateRow(e.getFirstRow());
-                    updateTotal();
-                }
-            });
-        } catch (NumberFormatException ignored) {
-            // Người dùng đang gõ dở, chưa phải số hợp lệ → bỏ qua
+            int qty = Integer.parseInt(tableModel.getValueAt(row, 1).toString().trim());
+            BigDecimal price = new BigDecimal(tableModel.getValueAt(row, 2).toString().trim());
+            BigDecimal lineTotal = price.multiply(BigDecimal.valueOf(qty));
+
+            // Tam go listener de tranh lap vo han khi set cot thanh tien
+            tableModel.removeTableModelListener(tableListener);
+            tableModel.setValueAt(lineTotal, row, 3);
+            tableModel.addTableModelListener(tableListener);
+        } catch (Exception ignored) {
         }
     }
 
-    /** Cập nhật nhãn Tổng tiền phiếu */
     private void updateTotal() {
-        double total = 0;
+        BigDecimal total = BigDecimal.ZERO;
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             try {
-                total += Double.parseDouble(tableModel.getValueAt(i, 3).toString());
-            } catch (Exception ignored) {}
+                total = total.add(new BigDecimal(tableModel.getValueAt(i, 3).toString().trim()));
+            } catch (Exception ignored) {
+            }
         }
         lblTotal.setText(String.format("Tổng tiền: %,.0f VNĐ", total));
     }
 
-    /** Validate và lưu phiếu nhập */
     private void saveReceipt() {
-        // 1. Kiểm tra ít nhất 1 dòng
         if (tableModel.getRowCount() == 0) {
             JOptionPane.showMessageDialog(this,
                 "Phiếu nhập phải có ít nhất 1 dòng sản phẩm!",
@@ -196,24 +195,46 @@ public class ImportPanel extends JPanel {
             return;
         }
 
-        // 2. Kiểm tra từng dòng: Số lượng > 0, Giá nhập >= 0
+        int idx = supplierCombo.getSelectedIndex();
+        if (idx < 0 || idx >= suppliers.size()) {
+            JOptionPane.showMessageDialog(this,
+                "Vui lòng chọn nhà cung cấp!",
+                "Lỗi", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        Supplier selectedSupplier = suppliers.get(idx);
+
+        // Tao model ImportReceipt de chuan bi truyen vao DAO
+        ImportReceipt receipt = new ImportReceipt();
+        receipt.setEmployeeId(101); // tam dung id co dinh, sau lay tu Session
+        receipt.setSupplierId(selectedSupplier.getSupplierId());
+        receipt.setImportDate(LocalDateTime.now());
+        receipt.setDescription(txtNote.getText().trim());
+
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             try {
-                int qty = Integer.parseInt(tableModel.getValueAt(i, 1).toString());
-                double price = Double.parseDouble(tableModel.getValueAt(i, 2).toString());
+                String productName = tableModel.getValueAt(i, 0).toString();
+                int qty = Integer.parseInt(tableModel.getValueAt(i, 1).toString().trim());
+                BigDecimal price = new BigDecimal(tableModel.getValueAt(i, 2).toString().trim());
+
                 if (qty <= 0) {
                     JOptionPane.showMessageDialog(this,
                         "Dòng " + (i + 1) + ": Số lượng phải lớn hơn 0!",
                         "Lỗi", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                if (price < 0) {
+                if (price.compareTo(BigDecimal.ZERO) < 0) {
                     JOptionPane.showMessageDialog(this,
                         "Dòng " + (i + 1) + ": Giá nhập không được âm!",
                         "Lỗi", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-            } catch (NumberFormatException ex) {
+
+                Product p = MockData.findProductByName(productName);
+                if (p != null) {
+                    receipt.getLines().add(new ImportLine(0, p.getProductId(), price, qty));
+                }
+            } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this,
                     "Dòng " + (i + 1) + ": Vui lòng nhập số hợp lệ!",
                     "Lỗi", JOptionPane.ERROR_MESSAGE);
@@ -221,21 +242,19 @@ public class ImportPanel extends JPanel {
             }
         }
 
-        // 3. Lưu thành công → hiển thị tóm tắt
         StringBuilder summary = new StringBuilder();
         summary.append("PHIẾU NHẬP KHO\n");
         summary.append("─────────────────────────\n");
-        summary.append("NCC: ").append(supplierCombo.getSelectedItem()).append("\n");
-        summary.append("Ghi chú: ").append(txtNote.getText()).append("\n");
-        summary.append("Số dòng: ").append(tableModel.getRowCount()).append("\n");
-        summary.append(lblTotal.getText()).append("\n");
+        summary.append("NCC: ").append(selectedSupplier.getName()).append(" (ID: ").append(receipt.getSupplierId()).append(")\n");
+        summary.append("Ghi chú: ").append(receipt.getDescription()).append("\n");
+        summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
+        summary.append(String.format("Tổng tiền (model): %,.0f VNĐ\n", receipt.getTotal()));
         summary.append("─────────────────────────\n");
-        summary.append("Trạng thái: ĐÃ LƯU THÀNH CÔNG");
+        summary.append("Trạng thái: ĐÃ ĐÓNG GÓI MODEL THÀNH CÔNG");
 
         JOptionPane.showMessageDialog(this, summary.toString(),
             "Lưu phiếu nhập thành công", JOptionPane.INFORMATION_MESSAGE);
 
-        // Xóa trắng form để lập phiếu mới
         tableModel.setRowCount(0);
         txtNote.setText("");
         updateTotal();

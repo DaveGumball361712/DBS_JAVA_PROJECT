@@ -1,32 +1,29 @@
 package view;
 
+import model.CheckDetail;
+import model.Product;
+import model.StockCheck;
+import model.StockCheckStatus;
+
 import javax.swing.*;
+import javax.swing.event.TableModelEvent;
+import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
-import javax.swing.event.TableModelEvent;
 import java.awt.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
-/**
- * Màn hình Lập Phiếu Kiểm Kê (cho Thủ kho).
- * Tương ứng bảng: WAREHOUSE.STOCK_CHECK + WAREHOUSE.CHECK_DETAIL
- *
- * Chức năng:
- * - Tạo phiếu kiểm kê: load toàn bộ sản phẩm vào bảng
- * - Thủ kho nhập Số thực tế cho từng sản phẩm
- * - Tự động tính Chênh lệch = Số thực tế - Số hệ thống
- * - Tô màu dòng có chênh lệch != 0 (đỏ nếu thiếu, xanh nếu thừa)
- * - Lưu phiếu ở trạng thái "WAITING FOR APPROVAL"
- */
+// Tab lap phieu kiem ke
 public class StockCheckPanel extends JPanel {
 
     private DefaultTableModel tableModel;
+    private TableModelListener tableListener;
     private JTable checkTable;
     private JLabel lblStatus;
     private JButton btnCreate;
     private JButton btnSave;
-    private boolean isEditing = false; // Đang có phiếu kiểm kê chưa lưu
+    private boolean isEditing = false;
 
     public StockCheckPanel() {
         setLayout(new BorderLayout(5, 5));
@@ -37,7 +34,6 @@ public class StockCheckPanel extends JPanel {
         add(createButtonPanel(), BorderLayout.SOUTH);
     }
 
-    // ========== PANEL TRÊN: Nút tạo phiếu + Trạng thái ==========
     private JPanel createTopPanel() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
 
@@ -57,13 +53,12 @@ public class StockCheckPanel extends JPanel {
         return panel;
     }
 
-    // ========== PANEL GIỮA: Bảng kiểm kê ==========
     private JScrollPane createTablePanel() {
         String[] columns = {"Mã SP", "Tên sản phẩm", "Đơn vị", "Số hệ thống", "Số thực tế", "Chênh lệch"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
-                // Chỉ cho sửa cột Số thực tế (4) khi đang kiểm kê
+                // Chi cho nhap cot so thuc te khi dang tao phieu
                 return isEditing && col == 4;
             }
         };
@@ -72,28 +67,25 @@ public class StockCheckPanel extends JPanel {
         checkTable.setRowHeight(28);
         checkTable.getTableHeader().setReorderingAllowed(false);
 
-        // Tô màu cột Chênh lệch
         checkTable.getColumnModel().getColumn(5).setCellRenderer(new DifferenceRenderer());
 
-        // Lắng nghe khi sửa cột Số thực tế → tính lại Chênh lệch
-        tableModel.addTableModelListener(e -> {
+        tableListener = e -> {
             if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 4) {
                 recalculateDifference(e.getFirstRow());
             }
-        });
+        };
+        tableModel.addTableModelListener(tableListener);
 
-        // Điều chỉnh độ rộng cột
-        checkTable.getColumnModel().getColumn(0).setPreferredWidth(50);   // Mã SP
-        checkTable.getColumnModel().getColumn(1).setPreferredWidth(280);  // Tên SP
-        checkTable.getColumnModel().getColumn(2).setPreferredWidth(60);   // Đơn vị
-        checkTable.getColumnModel().getColumn(3).setPreferredWidth(80);   // Số HT
-        checkTable.getColumnModel().getColumn(4).setPreferredWidth(80);   // Số TT
-        checkTable.getColumnModel().getColumn(5).setPreferredWidth(80);   // Chênh lệch
+        checkTable.getColumnModel().getColumn(0).setPreferredWidth(50);
+        checkTable.getColumnModel().getColumn(1).setPreferredWidth(280);
+        checkTable.getColumnModel().getColumn(2).setPreferredWidth(60);
+        checkTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+        checkTable.getColumnModel().getColumn(4).setPreferredWidth(80);
+        checkTable.getColumnModel().getColumn(5).setPreferredWidth(80);
 
         return new JScrollPane(checkTable);
     }
 
-    // ========== PANEL DƯỚI: Nút lưu ==========
     private JPanel createButtonPanel() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 5));
 
@@ -105,9 +97,6 @@ public class StockCheckPanel extends JPanel {
         return panel;
     }
 
-    // ==================== XỬ LÝ SỰ KIỆN ====================
-
-    /** Tạo phiếu kiểm kê: load toàn bộ sản phẩm vào bảng */
     private void createStockCheck() {
         if (isEditing) {
             int confirm = JOptionPane.showConfirmDialog(this,
@@ -116,67 +105,72 @@ public class StockCheckPanel extends JPanel {
             if (confirm != JOptionPane.YES_OPTION) return;
         }
 
-        // Xóa bảng cũ và nạp tất cả sản phẩm
+        // Load toan bo san pham, mac dinh so thuc te = so he thong
         tableModel.setRowCount(0);
-        for (int i = 0; i < MockData.PRODUCT_IDS.length; i++) {
-            int systemQty = MockData.PRODUCT_STOCKS[i]; // Số hệ thống = tồn kho hiện tại
+        for (Product p : MockData.getProducts()) {
+            int systemQty = p.getCurrentStock();
             tableModel.addRow(new Object[]{
-                MockData.PRODUCT_IDS[i],        // Mã SP
-                MockData.PRODUCT_NAMES[i],       // Tên SP
-                MockData.PRODUCT_UNITS[i],       // Đơn vị
-                systemQty,                       // Số hệ thống (chỉ đọc)
-                systemQty,                       // Số thực tế (mặc định = Số HT, thủ kho sửa lại)
-                0                                // Chênh lệch (ban đầu = 0)
+                p.getProductId(),
+                p.getName(),
+                p.getMeasureUnit(),
+                systemQty,
+                systemQty,
+                0
             });
         }
 
         isEditing = true;
         btnSave.setEnabled(true);
-        lblStatus.setText("WAITING FOR APPROVAL");
-        lblStatus.setForeground(new Color(200, 150, 0)); // Màu vàng cam
+        lblStatus.setText(StockCheckStatus.WAITING_FOR_APPROVAL.getDbValue());
+        lblStatus.setForeground(new Color(200, 150, 0));
     }
 
-    /** Tính lại Chênh lệch khi thủ kho sửa Số thực tế */
     private void recalculateDifference(int row) {
         try {
-            int systemQty = Integer.parseInt(tableModel.getValueAt(row, 3).toString());
-            int actualQty = Integer.parseInt(tableModel.getValueAt(row, 4).toString());
+            int systemQty = Integer.parseInt(tableModel.getValueAt(row, 3).toString().trim());
+            int actualQty = Integer.parseInt(tableModel.getValueAt(row, 4).toString().trim());
 
             if (actualQty < 0) {
                 JOptionPane.showMessageDialog(this,
                     "Số thực tế không được âm!", "Lỗi", JOptionPane.ERROR_MESSAGE);
-                // Đặt lại về giá trị cũ
                 tableModel.setValueAt(systemQty, row, 4);
                 return;
             }
 
             int diff = actualQty - systemQty;
-            // Tạm bỏ listener để tránh loop vô hạn khi set cột Chênh lệch
-            tableModel.removeTableModelListener(tableModel.getTableModelListeners()[0]);
+            tableModel.removeTableModelListener(tableListener);
             tableModel.setValueAt(diff, row, 5);
-            tableModel.addTableModelListener(e -> {
-                if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 4) {
-                    recalculateDifference(e.getFirstRow());
-                }
-            });
-            checkTable.repaint(); // Vẽ lại để cập nhật màu
-        } catch (NumberFormatException ex) {
-            // Người dùng đang gõ dở
+            tableModel.addTableModelListener(tableListener);
+            checkTable.repaint();
+        } catch (NumberFormatException ignored) {
         }
     }
 
-    /** Validate và lưu phiếu kiểm kê */
     private void saveStockCheck() {
-        // Kiểm tra tất cả ô Số thực tế phải là số >= 0
+        StockCheck stockCheck = new StockCheck();
+        stockCheck.setEmployeeId(101);
+        stockCheck.setManagerId(null);
+        stockCheck.setCheckDate(LocalDate.now());
+        stockCheck.setStatus(StockCheckStatus.WAITING_FOR_APPROVAL);
+        stockCheck.setApproveTime(null);
+
+        int diffCount = 0;
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             try {
-                int actualQty = Integer.parseInt(tableModel.getValueAt(i, 4).toString());
+                int productId = Integer.parseInt(tableModel.getValueAt(i, 0).toString());
+                int systemQty = Integer.parseInt(tableModel.getValueAt(i, 3).toString());
+                int actualQty = Integer.parseInt(tableModel.getValueAt(i, 4).toString().trim());
+
                 if (actualQty < 0) {
                     JOptionPane.showMessageDialog(this,
                         "Dòng " + (i + 1) + ": Số thực tế không được âm!",
                         "Lỗi", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
+
+                CheckDetail detail = new CheckDetail(0, productId, systemQty, actualQty);
+                if (detail.getDifference() != 0) diffCount++;
+                stockCheck.getDetails().add(detail);
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(this,
                     "Dòng " + (i + 1) + ": Vui lòng nhập số hợp lệ cho Số thực tế!",
@@ -185,44 +179,30 @@ public class StockCheckPanel extends JPanel {
             }
         }
 
-        // Đếm số dòng có chênh lệch
-        int diffCount = 0;
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            int diff = Integer.parseInt(tableModel.getValueAt(i, 5).toString());
-            if (diff != 0) diffCount++;
-        }
-
         StringBuilder summary = new StringBuilder();
         summary.append("PHIẾU KIỂM KÊ\n");
         summary.append("─────────────────────────\n");
-        summary.append("Tổng sản phẩm kiểm: ").append(tableModel.getRowCount()).append("\n");
+        summary.append("Tổng sản phẩm kiểm: ").append(stockCheck.getDetails().size()).append("\n");
         summary.append("Số SP có chênh lệch: ").append(diffCount).append("\n");
-        summary.append("Số SP khớp kho: ").append(tableModel.getRowCount() - diffCount).append("\n");
+        summary.append("Số SP khớp kho: ").append(stockCheck.getDetails().size() - diffCount).append("\n");
         summary.append("─────────────────────────\n");
-        summary.append("Trạng thái: CHỜ DUYỆT\n");
+        summary.append("Trạng thái: ").append(stockCheck.getStatus().getDisplayName())
+               .append(" [").append(stockCheck.getStatus().getDbValue()).append("]\n");
         summary.append("(Quản lý sẽ duyệt trên màn hình Duyệt phiếu)");
 
         JOptionPane.showMessageDialog(this, summary.toString(),
             "Lưu phiếu kiểm kê thành công", JOptionPane.INFORMATION_MESSAGE);
 
-        // Khóa bảng lại, không cho sửa nữa
         isEditing = false;
         btnSave.setEnabled(false);
-        lblStatus.setText("ĐÃ LƯU - CHỜ DUYỆT");
-        lblStatus.setForeground(new Color(0, 130, 0)); // Xanh lá
+        lblStatus.setText("ĐÃ LƯU - " + stockCheck.getStatus().getDisplayName().toUpperCase());
+        lblStatus.setForeground(new Color(0, 130, 0));
     }
 
-    // ==================== RENDERER TÔ MÀU ====================
-
-    /**
-     * Tô màu ô Chênh lệch:
-     * - Đỏ nhạt nếu < 0 (thiếu hàng)
-     * - Xanh nhạt nếu > 0 (thừa hàng)
-     * - Trắng nếu = 0 (khớp kho)
-     */
+    // To mau cot chenh lech: thieu to do, thua to xanh
     private static class DifferenceRenderer extends DefaultTableCellRenderer {
-        private static final Color COLOR_SHORTAGE = new Color(255, 200, 200); // Đỏ nhạt
-        private static final Color COLOR_SURPLUS  = new Color(200, 255, 200); // Xanh nhạt
+        private static final Color COLOR_SHORTAGE = new Color(255, 200, 200);
+        private static final Color COLOR_SURPLUS  = new Color(200, 255, 200);
         private static final Color COLOR_MATCH    = Color.WHITE;
 
         @Override
