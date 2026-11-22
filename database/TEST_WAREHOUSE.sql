@@ -1,0 +1,193 @@
+USE WAREHOUSEMANAGEMENT;
+GO
+
+-- ==================== TEST 4 VIEW ====================
+
+SELECT TOP 5 *
+FROM WAREHOUSE.V_IMPORT_RECEIPT_TOTAL
+ORDER BY TOTAL_AMOUNT DESC;
+GO
+
+SELECT TOP 10 *
+FROM WAREHOUSE.V_CHECK_DIFFERENCE
+WHERE DIFFERENCE_QUANTITY <> 0
+ORDER BY ABS(DIFFERENCE_QUANTITY) DESC;
+GO
+
+SELECT *
+FROM CATALOG.V_LOW_STOCK
+ORDER BY SHORTAGE_QUANTITY DESC;
+GO
+
+SELECT TOP 10 *
+FROM WAREHOUSE.V_IMPORT_BY_SUPPLIER
+ORDER BY TOTAL_IMPORT_AMOUNT DESC;
+GO
+
+
+-- ==================== TEST TRIGGER CONG KHO & DUYET XUAT ====================
+BEGIN TRANSACTION;
+GO
+
+-- Test cong kho khi nhap (+50)
+DECLARE @stock_before INT;
+SELECT @stock_before = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 1;
+PRINT N'Ton kho SP#1 truoc khi nhap: ' + CAST(@stock_before AS NVARCHAR);
+
+INSERT INTO WAREHOUSE.IMPORT_RECEIPT (EMPLOYEE_ID, SUPPLIER_ID, IMPORT_DATE, DESCRIPTION)
+VALUES (101, 1, GETDATE(), N'Test trigger cong kho');
+
+DECLARE @test_import_id INT = SCOPE_IDENTITY();
+
+INSERT INTO WAREHOUSE.INCLUDES (IMPORT_RECEIPT_ID, PRODUCT_ID, IMPORT_PRICE, QUANTITY)
+VALUES (@test_import_id, 1, 30000.00, 50);
+
+DECLARE @stock_after INT;
+SELECT @stock_after = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 1;
+PRINT N'Ton kho SP#1 sau khi nhap (+50): ' + CAST(@stock_after AS NVARCHAR);
+
+IF @stock_after = @stock_before + 50
+    PRINT N'PASS: Trigger cong kho dung';
+ELSE
+    PRINT N'FAIL: Trigger cong kho sai';
+GO
+
+-- Test duyet phieu xuat (-10) va chan duyet trung
+DECLARE @stock_before_export INT;
+SELECT @stock_before_export = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 2;
+PRINT N'Ton kho SP#2 truoc khi xuat: ' + CAST(@stock_before_export AS NVARCHAR);
+
+INSERT INTO WAREHOUSE.EXPORT_RECEIPT (EMPLOYEE_ID, MANAGER_ID, EXPORT_DATE, REASON, APPROVE_TIME)
+VALUES (101, NULL, CAST(GETDATE() AS DATE), N'EXPIRED', NULL);
+
+DECLARE @test_export_id INT = SCOPE_IDENTITY();
+
+INSERT INTO WAREHOUSE.EXPORT_FROM (PRODUCT_ID, EXPORT_RECEIPT_ID, QUANTITY)
+VALUES (2, @test_export_id, 10);
+
+DECLARE @stock_mid INT;
+SELECT @stock_mid = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 2;
+PRINT N'Ton kho SP#2 luc chua duyet: ' + CAST(@stock_mid AS NVARCHAR);
+
+EXEC WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT
+    @ExportReceiptId = @test_export_id,
+    @ManagerId       = 1;
+
+DECLARE @stock_after_export INT;
+SELECT @stock_after_export = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 2;
+PRINT N'Ton kho SP#2 sau khi duyet (-10): ' + CAST(@stock_after_export AS NVARCHAR);
+
+IF @stock_after_export = @stock_before_export - 10
+    PRINT N'PASS: Duyet xuat tru kho dung';
+ELSE
+    PRINT N'FAIL: Duyet xuat tru kho sai';
+
+-- Thu duyet lai lan 2 (phai bao loi)
+BEGIN TRY
+    EXEC WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT
+        @ExportReceiptId = @test_export_id,
+        @ManagerId       = 1;
+    PRINT N'FAIL: Khong chan duoc duyet trung';
+END TRY
+BEGIN CATCH
+    PRINT N'PASS: Chan duyet trung - ' + ERROR_MESSAGE();
+END CATCH;
+GO
+
+ROLLBACK TRANSACTION;
+GO
+
+
+-- ==================== TEST CA LOI (VUOT TON & R15) ====================
+
+-- Test xuat vuot ton kho (phai bao loi CHECK constraint)
+DECLARE @stock_sp2 INT;
+SELECT @stock_sp2 = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 2;
+
+INSERT INTO WAREHOUSE.EXPORT_RECEIPT (EMPLOYEE_ID, MANAGER_ID, EXPORT_DATE, REASON, APPROVE_TIME)
+VALUES (101, NULL, CAST(GETDATE() AS DATE), N'SPOILED OR BROKEN', NULL);
+
+DECLARE @test_over_export_id INT = SCOPE_IDENTITY();
+
+INSERT INTO WAREHOUSE.EXPORT_FROM (PRODUCT_ID, EXPORT_RECEIPT_ID, QUANTITY)
+VALUES (2, @test_over_export_id, @stock_sp2 + 999);
+
+BEGIN TRY
+    EXEC WAREHOUSE.SP_APPROVE_EXPORT_RECEIPT
+        @ExportReceiptId = @test_over_export_id,
+        @ManagerId       = 1;
+    PRINT N'FAIL: Cho xuat vuot ton kho';
+END TRY
+BEGIN CATCH
+    PRINT N'PASS: Chan xuat vuot ton - ' + ERROR_MESSAGE();
+END CATCH;
+
+DELETE FROM WAREHOUSE.EXPORT_FROM WHERE EXPORT_RECEIPT_ID = @test_over_export_id;
+DELETE FROM WAREHOUSE.EXPORT_RECEIPT WHERE EXPORT_RECEIPT_ID = @test_over_export_id;
+GO
+
+-- Test trigger chan tra NCC sai ly do (R15)
+INSERT INTO WAREHOUSE.EXPORT_RECEIPT (EMPLOYEE_ID, MANAGER_ID, EXPORT_DATE, REASON, APPROVE_TIME)
+VALUES (101, NULL, CAST(GETDATE() AS DATE), N'EXPIRED', NULL);
+
+DECLARE @test_wrong_export_id INT = SCOPE_IDENTITY();
+
+BEGIN TRY
+    INSERT INTO WAREHOUSE.RETURN_SUPPLIER (EXPORT_RECEIPT_ID, SUPPLIER_ID)
+    VALUES (@test_wrong_export_id, 1);
+    PRINT N'FAIL: Khong chan ly do EXPIRED';
+END TRY
+BEGIN CATCH
+    PRINT N'PASS: Chan R15 dung - ' + ERROR_MESSAGE();
+END CATCH;
+
+-- Ly do RETURN thi phai them thanh cong
+INSERT INTO WAREHOUSE.EXPORT_RECEIPT (EMPLOYEE_ID, MANAGER_ID, EXPORT_DATE, REASON, APPROVE_TIME)
+VALUES (101, NULL, CAST(GETDATE() AS DATE), N'RETURN', NULL);
+
+DECLARE @test_correct_export_id INT = SCOPE_IDENTITY();
+
+BEGIN TRY
+    INSERT INTO WAREHOUSE.RETURN_SUPPLIER (EXPORT_RECEIPT_ID, SUPPLIER_ID)
+    VALUES (@test_correct_export_id, 1);
+    PRINT N'PASS: Them RETURN_SUPPLIER voi ly do RETURN thanh cong';
+END TRY
+BEGIN CATCH
+    PRINT N'FAIL: ' + ERROR_MESSAGE();
+END CATCH;
+
+DELETE FROM WAREHOUSE.RETURN_SUPPLIER WHERE EXPORT_RECEIPT_ID = @test_correct_export_id;
+DELETE FROM WAREHOUSE.EXPORT_RECEIPT WHERE EXPORT_RECEIPT_ID IN (@test_wrong_export_id, @test_correct_export_id);
+GO
+
+
+-- ==================== TEST DUYET PHIEU KIEM KE ====================
+BEGIN TRANSACTION;
+GO
+
+INSERT INTO WAREHOUSE.STOCK_CHECK (EMPLOYEE_ID, MANAGER_ID, CHECK_DATE, STATUS, APPROVE_TIME)
+VALUES (101, NULL, CAST(GETDATE() AS DATE), N'WAITING FOR APPROVAL', NULL);
+
+DECLARE @test_check_id INT = SCOPE_IDENTITY();
+
+INSERT INTO WAREHOUSE.CHECK_DETAIL (STOCK_CHECK_ID, PRODUCT_ID, SYSTEM_QUANTITY, ACTUAL_QUANTITY)
+VALUES (@test_check_id, 3, 59, 55);
+
+EXEC WAREHOUSE.SP_APPROVE_STOCK_CHECK
+    @StockCheckId = @test_check_id,
+    @ManagerId    = 1;
+
+DECLARE @stock_after_check INT;
+SELECT @stock_after_check = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 3;
+
+DECLARE @check_status NVARCHAR(20);
+SELECT @check_status = STATUS FROM WAREHOUSE.STOCK_CHECK WHERE STOCK_CHECK_ID = @test_check_id;
+
+IF @stock_after_check = 55 AND @check_status = N'APPROVED'
+    PRINT N'PASS: Duyet kiem ke va cap nhat ton kho dung';
+ELSE
+    PRINT N'FAIL: Duyet kiem ke sai';
+GO
+
+ROLLBACK TRANSACTION;
+GO
