@@ -1,25 +1,35 @@
 package view;
 import java.awt.*;
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
+import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.List;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+
+import dao.ReportDAO;
+import util.ErrorHandler;
 
 public class ReportPanel extends JPanel {
+
+    private final ReportDAO dao = new ReportDAO();
 
     private final JTextField fromField = new JTextField(10);
     private final JTextField toField = new JTextField(10);
     private final JLabel revenueLabel = new JLabel();
     private final JLabel orderCountLabel = new JLabel();
 
+    private final DefaultTableModel dailyModel =
+        createModel("Ngay", "So don", "Doanh thu (VND)");
     private final DefaultTableModel cashierModel =
         createModel("Thu ngan", "So don", "Doanh thu (VND)");
     private final DefaultTableModel topProductModel =
-        createModel("Ma SP", "Ten san pham", "So luong ban", "Doanh thu (VND)");
+        createModel("Hang", "Ma SP", "Ten san pham", "So luong ban", "Doanh thu (VND)");
     private final DefaultTableModel lowStockModel =
-        createModel("Ma SP", "Ten san pham", "Ton kho", "Ton toi thieu");
+        createModel("Ma SP", "Ten san pham", "Loai hang", "Ton kho", "Ton toi thieu", "Can nhap them");
     private final DefaultTableModel supplierModel =
-        createModel("Nha cung cap", "So phieu nhap", "Tong tien nhap (VND)");
+        createModel("Nha cung cap", "So phieu nhap", "Tong so luong", "Tong tien nhap (VND)");
 
     public ReportPanel() {
         setLayout(new BorderLayout(0, 10));
@@ -29,7 +39,7 @@ public class ReportPanel extends JPanel {
         add(createReportTabs(), BorderLayout.CENTER);
 
         LocalDate today = LocalDate.now();
-        fromField.setText(today.withDayOfMonth(1).toString());
+        fromField.setText(today.withDayOfYear(1).toString());   // tu dau nam
         toField.setText(today.toString());
         loadReport();
     }
@@ -61,8 +71,9 @@ public class ReportPanel extends JPanel {
 
     private JTabbedPane createReportTabs() {
         JTabbedPane reportTabs = new JTabbedPane();
-        reportTabs.addTab("Doanh thu theo thu ngan", wrapInTable(cashierModel));
-        reportTabs.addTab("San pham ban chay", wrapInTable(topProductModel));
+        reportTabs.addTab("Doanh thu theo ngay", wrapInTable(dailyModel));
+        reportTabs.addTab("Theo thu ngan (tat ca)", wrapInTable(cashierModel));
+        reportTabs.addTab("San pham ban chay (tat ca)", wrapInTable(topProductModel));
         reportTabs.addTab("Hang sap het", wrapInTable(lowStockModel));
         reportTabs.addTab("Nhap theo nha cung cap", wrapInTable(supplierModel));
         return reportTabs;
@@ -102,35 +113,44 @@ public class ReportPanel extends JPanel {
             return;
         }
 
-        loadFakeData();
+        try {
+            List<Object[]> daily = dao.revenueByDay(from, to);
+            fill(dailyModel, daily);
+
+            // Tong doanh thu va so don trong khoang ngay
+            BigDecimal totalRevenue = BigDecimal.ZERO;
+            int totalOrders = 0;
+            for (Object[] row : daily) {
+                totalOrders += (Integer) row[1];
+                totalRevenue = totalRevenue.add((BigDecimal) row[2]);
+            }
+            revenueLabel.setText("Tong doanh thu: " + money(totalRevenue) + " VND");
+            orderCountLabel.setText("So don: " + totalOrders);
+
+            fill(cashierModel, dao.revenueByCashier());
+            fill(topProductModel, dao.topProducts());
+            fill(lowStockModel, dao.lowStock());
+            fill(supplierModel, dao.importBySupplier());
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+        }
     }
 
-    private void loadFakeData() {
-        cashierModel.setRowCount(0);
-        cashierModel.addRow(new Object[] {"Nguyen Thi Lan", 42, 12_450_000L});
-        cashierModel.addRow(new Object[] {"Tran Van Minh", 35, 9_870_000L});
-        cashierModel.addRow(new Object[] {"Le Thi Hoa", 28, 7_320_000L});
-
-        long totalRevenue = 0;
-        int totalOrders = 0;
-        for (int row = 0; row < cashierModel.getRowCount(); row++) {
-            totalOrders += (Integer) cashierModel.getValueAt(row, 1);
-            totalRevenue += (Long) cashierModel.getValueAt(row, 2);
+    // Do danh sach dong vao bang
+    private static void fill(DefaultTableModel model, List<Object[]> rows) {
+        model.setRowCount(0);
+        for (Object[] row : rows) {
+            Object[] display = row.clone();
+            for (int i = 0; i < display.length; i++) {
+                if (display[i] instanceof BigDecimal) {
+                    display[i] = money((BigDecimal) display[i]);
+                }
+            }
+            model.addRow(display);
         }
-        revenueLabel.setText("Tong doanh thu: " + String.format("%,d", totalRevenue) + " VND");
-        orderCountLabel.setText("So don: " + totalOrders);
+    }
 
-        topProductModel.setRowCount(0);
-        topProductModel.addRow(new Object[] {12, "Sua tuoi Vinamilk 1L", 120, 3_840_000L});
-        topProductModel.addRow(new Object[] {7, "Mi Hao Hao", 300, 1_350_000L});
-        topProductModel.addRow(new Object[] {25, "Tai nghe Bluetooth", 8, 2_400_000L});
-
-        lowStockModel.setRowCount(0);
-        lowStockModel.addRow(new Object[] {31, "Nuoc suoi 500ml", 4, 20});
-        lowStockModel.addRow(new Object[] {18, "Pin AA", 2, 10});
-
-        supplierModel.setRowCount(0);
-        supplierModel.addRow(new Object[] {"Cong ty Sua Viet", 5, 25_000_000L});
-        supplierModel.addRow(new Object[] {"Dien May Sai Gon", 2, 18_500_000L});
+    private static String money(BigDecimal value) {
+        return String.format("%,.0f", value);
     }
 }
