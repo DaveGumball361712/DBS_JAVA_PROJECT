@@ -21,7 +21,7 @@ public class ManagerFrame extends JFrame {
 
         add(createHeader(managerName), BorderLayout.NORTH);
         
-        tabs.addTab("Nhan vien", createPlaceholder("Quan ly nhan vien"));
+        tabs.addTab("Nhan vien", new EmployeePanel());
         tabs.addTab("San pham", createPlaceholder("Quan ly san pham"));
         tabs.addTab("Loai hang", new CategoryPanel());
         tabs.addTab("Nha cung cap", new SupplierPanel());
