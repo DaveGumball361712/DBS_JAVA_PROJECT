@@ -1,14 +1,36 @@
 package view;
 import java.awt.*;
+import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 
+import dao.EmployeeDAO;
+import dao.ExportReceiptDAO;
+import dao.StockCheckDAO;
+import model.Employee;
+import model.ExportReceipt;
+import model.StockCheck;
+import util.ErrorHandler;
+import util.Session;
+
 public class ApprovalPanel extends JPanel {
 
+    // Mot hanh dong duyet: nhan ma phieu + ma quan ly, co the nem SQLException
+    private interface ApproveAction {
+        void approve(int receiptId, int managerId) throws SQLException;
+    }
+
+    private final ExportReceiptDAO exportDAO = new ExportReceiptDAO();
+    private final StockCheckDAO checkDAO = new StockCheckDAO();
+    private final EmployeeDAO employeeDAO = new EmployeeDAO();
+    private final Map<Integer, String> nameCache = new HashMap<>();
+
     private final DefaultTableModel exportModel =
-        createModel("Ma phieu", "Nhan vien kho", "Ngay xuat", "Ly do");
+        createModel("Ma phieu", "Nhan vien kho", "Ngay xuat", "Ly do", "So san pham");
     private final DefaultTableModel checkModel =
-        createModel("Ma phieu", "Nhan vien kho", "Ngay kiem", "Trang thai");
+        createModel("Ma phieu", "Nhan vien kho", "Ngay kiem", "So san pham", "So SP lech");
 
     private final JTable exportTable = createTable(exportModel);
     private final JTable checkTable = createTable(checkModel);
@@ -18,15 +40,20 @@ public class ApprovalPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JButton approveExport = new JButton("Duyet phieu xuat");
-        approveExport.addActionListener(e -> approveSelected(exportTable, exportModel, "phieu xuat"));
+        approveExport.addActionListener(e ->
+            approveSelected(exportTable, exportModel, "phieu xuat", exportDAO::approve));
 
         JButton approveCheck = new JButton("Duyet phieu kiem ke");
-        approveCheck.addActionListener(e -> approveSelected(checkTable, checkModel, "phieu kiem ke"));
+        approveCheck.addActionListener(e ->
+            approveSelected(checkTable, checkModel, "phieu kiem ke", checkDAO::approve));
 
-        add(createSection("Phieu xuat cho duyet", exportTable, approveExport));
+        JButton refresh = new JButton("Lam moi");
+        refresh.addActionListener(e -> loadData());
+
+        add(createSection("Phieu xuat cho duyet", exportTable, refresh, approveExport));
         add(createSection("Phieu kiem ke cho duyet", checkTable, approveCheck));
 
-        loadFakeData();
+        loadData();
     }
 
     private static DefaultTableModel createModel(String... columns) {
@@ -45,51 +72,110 @@ public class ApprovalPanel extends JPanel {
         return table;
     }
 
-    private JPanel createSection(String title, JTable table, JButton approveButton) {
+    private JPanel createSection(String title, JTable table, JButton... buttons) {
         JPanel section = new JPanel(new BorderLayout(0, 6));
         section.setBorder(BorderFactory.createTitledBorder(title));
         section.add(new JScrollPane(table), BorderLayout.CENTER);
 
         JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttonBar.add(approveButton);
+        for (JButton b : buttons) {
+            buttonBar.add(b);
+        }
         section.add(buttonBar, BorderLayout.SOUTH);
         return section;
     }
 
-private void approveSelected(JTable table, DefaultTableModel model, String type) {
-    int[] rows = table.getSelectedRows();
-    if (rows.length == 0) {
-        JOptionPane.showMessageDialog(this, "Hay chon it nhat mot " + type,
-            "Chua chon phieu", JOptionPane.WARNING_MESSAGE);
-        return;
-    }
+    // Doc phieu cho duyet tu database va do vao 2 bang
+    private void loadData() {
+        try {
+            exportModel.setRowCount(0);
+            for (ExportReceipt r : exportDAO.findPending()) {
+                exportModel.addRow(new Object[] {
+                    r.getExportReceiptId(),
+                    employeeName(r.getEmployeeId()),
+                    r.getExportDate(),
+                    r.getReason().getDisplayName(),
+                    r.getLines().size()
+                });
+            }
 
-    StringBuilder ids = new StringBuilder();
-    for (int row : rows) {
-        if (ids.length() > 0) {
-            ids.append(", ");
+            checkModel.setRowCount(0);
+            for (StockCheck sc : checkDAO.findPending()) {
+                long diffCount = sc.getDetails().stream()
+                    .filter(d -> d.getDifference() != 0)
+                    .count();
+                checkModel.addRow(new Object[] {
+                    sc.getStockCheckId(),
+                    employeeName(sc.getEmployeeId()),
+                    sc.getCheckDate(),
+                    sc.getDetails().size(),
+                    diffCount
+                });
+            }
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
         }
-        ids.append(model.getValueAt(row, 0));
     }
 
-    int answer = JOptionPane.showConfirmDialog(this,
-        "Duyet " + rows.length + " " + type + ": " + ids + "?",
-        "Xac nhan", JOptionPane.YES_NO_OPTION);
-
-    if (answer == JOptionPane.YES_OPTION) {
-        for (int i = rows.length - 1; i >= 0; i--) {
-            model.removeRow(rows[i]);
+    // Lay ten nhan vien theo ma
+    private String employeeName(int employeeId) throws SQLException {
+        if (!nameCache.containsKey(employeeId)) {
+            Employee e = employeeDAO.findById(employeeId);
+            nameCache.put(employeeId, e != null ? e.getFullName() : "NV #" + employeeId);
         }
-        JOptionPane.showMessageDialog(this, "Da duyet " + type + ": " + ids);
+        return nameCache.get(employeeId);
     }
-}
 
-    private void loadFakeData() {
-        exportModel.addRow(new Object[] {101, "Nguyen Van An", "2026-11-10", "EXPIRED"});
-        exportModel.addRow(new Object[] {102, "Tran Thi Binh", "2026-11-11", "SPOILED OR BROKEN"});
-        exportModel.addRow(new Object[] {103, "Le Van Cuong", "2026-11-12", "RETURN"});
+    private void approveSelected(JTable table, DefaultTableModel model, String type, ApproveAction action) {
+        if (Session.currentUser == null) {
+            JOptionPane.showMessageDialog(this, "Hay dang nhap bang tai khoan quan ly de duyet phieu.",
+                "Chua dang nhap", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
-        checkModel.addRow(new Object[] {201, "Nguyen Van An", "2026-11-09", "WAITING FOR APPROVAL"});
-        checkModel.addRow(new Object[] {202, "Pham Thi Dung", "2026-11-12", "WAITING FOR APPROVAL"});
+        int[] rows = table.getSelectedRows();
+        if (rows.length == 0) {
+            JOptionPane.showMessageDialog(this, "Hay chon it nhat mot " + type,
+                "Chua chon phieu", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        StringBuilder ids = new StringBuilder();
+        for (int row : rows) {
+            if (ids.length() > 0) {
+                ids.append(", ");
+            }
+            ids.append(model.getValueAt(row, 0));
+        }
+
+        int answer = JOptionPane.showConfirmDialog(this,
+            "Duyet " + rows.length + " " + type + ": " + ids + "?",
+            "Xac nhan", JOptionPane.YES_NO_OPTION);
+        if (answer != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        int managerId = Session.currentUser.getEmployeeId();
+        int success = 0;
+        StringBuilder errors = new StringBuilder();
+        for (int row : rows) {
+            int receiptId = (Integer) model.getValueAt(row, 0);
+            try {
+                action.approve(receiptId, managerId);
+                success++;
+            } catch (SQLException ex) {
+                errors.append("\n- Phieu ").append(receiptId).append(": ")
+                    .append(ErrorHandler.translateSqlException(ex));
+            }
+        }
+
+        String message = "Da duyet " + success + "/" + rows.length + " " + type + ".";
+        if (errors.length() > 0) {
+            JOptionPane.showMessageDialog(this, message + "\nKhong duyet duoc:" + errors,
+                "Ket qua duyet", JOptionPane.WARNING_MESSAGE);
+        } else {
+            JOptionPane.showMessageDialog(this, message);
+        }
+        loadData();
     }
 }
