@@ -1,58 +1,54 @@
 package dao;
 
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 import model.OrderLine;
 import model.OrderStatus;
 import model.Payment;
 import model.SalesOrder;
 
-import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
-
 public class SalesOrderDAO extends BaseDAO<SalesOrder, Integer> {
 
-// Chuyển List<OrderLine> thành chuỗi JSON cho OPENJSON trong SP_CREATE_SALES_ORDER 
     private String toOrderLinesJson(List<OrderLine> lines) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < lines.size(); i++) {
             OrderLine line = lines.get(i);
             if (i > 0) sb.append(",");
-            sb.append("{\"PRODUCT_ID\":").append(line.getProductId())
-            .append(",\"QUANTITY\":").append(line.getQuantity())
-            .append(",\"UNIT_PRICE\":").append(line.getUnitPrice().toPlainString())
-            .append("}");
+            sb.append("{\"productId\":").append(line.getProductId())
+              .append(",\"quantity\":").append(line.getQuantity())
+              .append("}");
         }
         sb.append("]");
         return sb.toString();
     }
 
     public int save(SalesOrder order) throws SQLException {
-        String callCreateOrder = "{call SALES.SP_CREATE_SALES_ORDER(?, ?, ?, ?, ?)}";
+        String callCreateOrder = "{call SALES.SP_CREATE_SALES_ORDER(?, ?, ?, ?)}";
         String callAddPayment = "{call SALES.SP_ADD_PAYMENT(?, ?, ?)}";
 
         try (Connection conn = getConnection()) {
             conn.setAutoCommit(false);
             try {
                 int newOrderId;
-                // Gọi SP_CREATE_SALES_ORDER
                 try (CallableStatement csOrder = conn.prepareCall(callCreateOrder)) {
+                    csOrder.setInt(1, order.getEmployeeId());
+                    csOrder.setString(2, toOrderLinesJson(order.getOrderLines()));
                     if (order.getCustomerId() == null) {
-                        csOrder.setNull(1, Types.INTEGER);
+                        csOrder.setNull(3, Types.INTEGER);
                     } else {
-                        csOrder.setInt(1, order.getCustomerId());
+                        csOrder.setInt(3, order.getCustomerId());
                     }
-                    csOrder.setInt(2, order.getEmployeeId());
-                    csOrder.setBigDecimal(3, order.getDiscount());
-                    csOrder.setString(4, toOrderLinesJson(order.getOrderLines()));
-                    csOrder.registerOutParameter(5, Types.INTEGER); // Tham số OUTPUT @NewOrderID
-                    csOrder.execute();
+                    csOrder.setBigDecimal(4, order.getDiscount());
 
-                    newOrderId = csOrder.getInt(5);
+                    try (ResultSet rs = csOrder.executeQuery()) {
+                        rs.next();
+                        newOrderId = rs.getInt("SALES_ORDER_ID");
+                    }
                     order.setSalesOrderId(newOrderId);
                 }
 
-                // Gọi SP_ADD_PAYMENT cho từng lần thanh toán
-                if (order.getPayments() != null && !order.getPayments().isEmpty()) {
+                if (order.getPayments() != null) {
                     try (CallableStatement csPay = conn.prepareCall(callAddPayment)) {
                         for (Payment p : order.getPayments()) {
                             csPay.setInt(1, newOrderId);

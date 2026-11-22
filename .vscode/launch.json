@@ -3,6 +3,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "CashierFrame",
+            "request": "launch",
+            "mainClass": "view.CashierFrame",
+            "projectName": "DBS_JAVA_PROJECT_bb6763e5"
+        },
+        {
+            "type": "java",
             "name": "ManagerFrame",
             "request": "launch",
             "mainClass": "view.ManagerFrame",

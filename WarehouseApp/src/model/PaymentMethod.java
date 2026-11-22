@@ -2,7 +2,7 @@ package model;
 
 public enum PaymentMethod {
     IN_CASH("IN CASH", "Tiền mặt"),
-    ONLINE_BANKING("ONELINE BANKING", "Chuyển khoản"),
+    ONLINE_BANKING("ONLINE BANKING", "Chuyển khoản"),
     BY_CARD("BY CARD", "Thẻ ngân hàng");
 
     private final String dbValue;
