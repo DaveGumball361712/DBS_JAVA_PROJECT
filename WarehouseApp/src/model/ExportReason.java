@@ -1,7 +1,7 @@
 package model;
 
 public enum ExportReason {
-    SPOILED_OR_BROKEN("SPOIL OR BROKEN", "Hư hỏng / Vỡ"),
+    SPOILED_OR_BROKEN("SPOILED OR BROKEN", "Hư hỏng / Vỡ"),
     EXPIRED("EXPIRED", "Hết hạn sử dụng"),
     RETURN("RETURN", "Trả hàng");
 
