@@ -262,3 +262,58 @@ JOIN CATALOG.PRODUCT AS p ON p.PRODUCT_ID = l.PRODUCT_ID
 WHERE o.STATUS = N'PAID'
 GROUP BY p.PRODUCT_ID, p.NAME;
 GO
+
+-- Doanh thu theo thu ngân trong khoảng ngày [from, to]
+CREATE OR ALTER PROCEDURE SALES.SP_REVENUE_BY_CASHIER
+    @from_date DATE,
+    @to_date DATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @from_date > @to_date
+        THROW 50006, N'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc', 1;
+
+    SELECT e.LAST_NAME + N' ' + e.FIRST_NAME AS FULL_NAME,
+           COUNT(*) AS ORDER_COUNT,
+           SUM(t.TOTAL_AMOUNT) AS REVENUE
+    FROM SALES.V_SALES_ORDER_TOTAL AS t
+    JOIN HR.EMPLOYEE AS e ON e.EMPLOYEE_ID = t.EMPLOYEE_ID
+    WHERE t.STATUS = N'PAID'
+      AND t.ORDER_DATE >= @from_date
+      AND t.ORDER_DATE < DATEADD(DAY, 1, @to_date)
+    GROUP BY e.EMPLOYEE_ID, e.LAST_NAME, e.FIRST_NAME
+    ORDER BY REVENUE DESC;
+END;
+GO
+
+-- Top sản phẩm bán chạy trong khoảng ngày, có xếp hạng
+CREATE OR ALTER PROCEDURE SALES.SP_TOP_PRODUCTS
+    @from_date DATE,
+    @to_date DATE,
+    @top_n INT = 20
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @from_date > @to_date
+        THROW 50006, N'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc', 1;
+
+    SELECT TOP (@top_n) *
+    FROM (
+        SELECT p.PRODUCT_ID,
+               p.NAME,
+               SUM(l.QUANTITY) AS TOTAL_QTY,
+               SUM(l.UNIT_PRICE * l.QUANTITY) AS TOTAL_REVENUE,
+               RANK() OVER (ORDER BY SUM(l.QUANTITY) DESC) AS RANK_NO
+        FROM SALES.ORDER_LINE AS l
+        JOIN SALES.SALES_ORDER AS o ON o.SALES_ORDER_ID = l.SALES_ORDER_ID
+        JOIN CATALOG.PRODUCT AS p ON p.PRODUCT_ID = l.PRODUCT_ID
+        WHERE o.STATUS = N'PAID'
+          AND o.ORDER_DATE >= @from_date
+          AND o.ORDER_DATE < DATEADD(DAY, 1, @to_date)
+        GROUP BY p.PRODUCT_ID, p.NAME
+    ) AS x
+    ORDER BY RANK_NO;
+END;
+GO
