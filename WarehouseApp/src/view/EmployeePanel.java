@@ -1,5 +1,4 @@
 package view;
-
 import java.awt.*;
 import java.math.BigDecimal;
 import java.sql.SQLException;
@@ -9,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-
 import dao.EmployeeDAO;
 import model.Cashier;
 import model.Employee;
@@ -18,7 +16,6 @@ import model.WarehouseStaff;
 import util.ErrorHandler;
 
 public class EmployeePanel extends JPanel {
-
     private static final String[] ROLES = {"Quan ly", "Thu ngan", "Nhan vien kho"};
 
     private final EmployeeDAO dao = new EmployeeDAO();

@@ -1,12 +1,9 @@
 package view;
-
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.border.Border;
 import util.Session;
-
 public class ManagerFrame extends JFrame {
-
     private final JTabbedPane tabs=new JTabbedPane();
     // Dung khi dang nhap: lay ten nguoi dung tu Session
     public ManagerFrame() {
@@ -22,7 +19,7 @@ public class ManagerFrame extends JFrame {
         add(createHeader(managerName), BorderLayout.NORTH);
         
         tabs.addTab("Nhan vien", new EmployeePanel());
-        tabs.addTab("San pham", createPlaceholder("Quan ly san pham"));
+        tabs.addTab("San pham", new ProductPanel());
         tabs.addTab("Loai hang", new CategoryPanel());
         tabs.addTab("Nha cung cap", new SupplierPanel());
         tabs.addTab("Duyet phieu", new ApprovalPanel());    
