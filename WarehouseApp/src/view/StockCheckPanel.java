@@ -33,6 +33,7 @@ public class StockCheckPanel extends JPanel {
     private JButton btnCreate;
     private JButton btnSave;
     private boolean isEditing = false;
+    private boolean isSaving = false;
 
     public StockCheckPanel() {
         setLayout(new BorderLayout(5, 5));
@@ -54,7 +55,7 @@ public class StockCheckPanel extends JPanel {
         panel.add(new JLabel("  |  Ngày: " + LocalDate.now().format(fmt)));
 
         panel.add(new JLabel("  |  Trạng thái: "));
-        lblStatus = new JLabel("CHƯA TẠO");
+        lblStatus = new JLabel("Chưa tạo");
         lblStatus.setFont(lblStatus.getFont().deriveFont(Font.BOLD));
         lblStatus.setForeground(Color.GRAY);
         panel.add(lblStatus);
@@ -107,6 +108,9 @@ public class StockCheckPanel extends JPanel {
     }
 
     private void createStockCheck() {
+        if (checkTable.isEditing()) {
+            checkTable.getCellEditor().cancelCellEditing();
+        }
         if (isEditing) {
             int confirm = JOptionPane.showConfirmDialog(this,
                 "Bạn đang có phiếu kiểm kê chưa lưu.\nTạo phiếu mới sẽ mất dữ liệu cũ. Tiếp tục?",
@@ -120,6 +124,11 @@ public class StockCheckPanel extends JPanel {
             products = productDAO.findAll();
         } catch (SQLException ex) {
             ErrorHandler.showError(this, ex);
+            return;
+        }
+
+        if (products.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Không có sản phẩm nào để kiểm kê!", "Thông báo", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -138,34 +147,55 @@ public class StockCheckPanel extends JPanel {
 
         isEditing = true;
         btnSave.setEnabled(true);
-        lblStatus.setText(StockCheckStatus.WAITING_FOR_APPROVAL.getDbValue());
+        lblStatus.setText("Đang kiểm kê (chưa lưu)");
         lblStatus.setForeground(new Color(200, 150, 0));
     }
 
     private void recalculateDifference(int row) {
+        Object diffValue;
         try {
             int systemQty = Integer.parseInt(tableModel.getValueAt(row, 3).toString().trim());
-            int actualQty = Integer.parseInt(tableModel.getValueAt(row, 4).toString().trim());
+            Object actualObj = tableModel.getValueAt(row, 4);
+            if (actualObj == null) {
+                throw new NumberFormatException();
+            }
+            int actualQty = Integer.parseInt(actualObj.toString().trim());
 
             if (actualQty < 0) {
-                JOptionPane.showMessageDialog(this,
-                    "Số thực tế không được âm!", "Lỗi", JOptionPane.ERROR_MESSAGE);
-                tableModel.setValueAt(systemQty, row, 4);
-                return;
+                diffValue = "Không hợp lệ";
+                if (!isSaving) {
+                    JOptionPane.showMessageDialog(this,
+                        "Số thực tế không được âm!", "Lỗi", JOptionPane.ERROR_MESSAGE);
+                }
+            } else {
+                diffValue = actualQty - systemQty;
             }
-
-            int diff = actualQty - systemQty;
-            tableModel.removeTableModelListener(tableListener);
-            tableModel.setValueAt(diff, row, 5);
-            tableModel.addTableModelListener(tableListener);
-            checkTable.repaint();
-        } catch (NumberFormatException ignored) {
+        } catch (NumberFormatException ex) {
+            diffValue = "Không hợp lệ";
         }
+
+        tableModel.removeTableModelListener(tableListener);
+        tableModel.setValueAt(diffValue, row, 5);
+        tableModel.addTableModelListener(tableListener);
+        checkTable.repaint();
     }
 
     private void saveStockCheck() {
+        // Dat co isSaving de tranh hien 2 popup loi trung nhau khi stopCellEditing
         if (checkTable.isEditing()) {
-            checkTable.getCellEditor().stopCellEditing();
+            isSaving = true;
+            try {
+                checkTable.getCellEditor().stopCellEditing();
+            } finally {
+                isSaving = false;
+            }
+        }
+
+        if (tableModel.getRowCount() == 0) {
+            JOptionPane.showMessageDialog(this,
+                "Phiếu kiểm kê chưa có sản phẩm nào!",
+                "Lỗi", JOptionPane.ERROR_MESSAGE);
+            return;
         }
 
         int employeeId = Session.currentUser != null ? Session.currentUser.getEmployeeId() : 101;
@@ -182,7 +212,11 @@ public class StockCheckPanel extends JPanel {
             try {
                 int productId = Integer.parseInt(tableModel.getValueAt(i, 0).toString());
                 int systemQty = Integer.parseInt(tableModel.getValueAt(i, 3).toString());
-                int actualQty = Integer.parseInt(tableModel.getValueAt(i, 4).toString().trim());
+                Object actualObj = tableModel.getValueAt(i, 4);
+                if (actualObj == null) {
+                    throw new NumberFormatException();
+                }
+                int actualQty = Integer.parseInt(actualObj.toString().trim());
 
                 if (actualQty < 0) {
                     JOptionPane.showMessageDialog(this,
@@ -214,21 +248,21 @@ public class StockCheckPanel extends JPanel {
             summary.append("Số SP khớp kho: ").append(stockCheck.getDetails().size() - diffCount).append("\n");
             summary.append("─────────────────────────\n");
             summary.append("Trạng thái: ").append(stockCheck.getStatus().getDisplayName()).append("\n");
-            summary.append("(Đã lưu vào cơ sở dữ liệu, chờ Quản lý duyệt)");
+            summary.append("Phiếu kiểm kê đã được lưu và đang chờ quản lý duyệt.");
 
             JOptionPane.showMessageDialog(this, summary.toString(),
                 "Lưu phiếu kiểm kê thành công", JOptionPane.INFORMATION_MESSAGE);
 
             isEditing = false;
             btnSave.setEnabled(false);
-            lblStatus.setText("ĐÃ LƯU #" + newId + " - " + stockCheck.getStatus().getDisplayName().toUpperCase());
+            lblStatus.setText("Đã lưu #" + newId + " - " + stockCheck.getStatus().getDisplayName());
             lblStatus.setForeground(new Color(0, 130, 0));
         } catch (SQLException ex) {
             ErrorHandler.showError(this, ex);
         }
     }
 
-    // To mau cot chenh lech: thieu to do, thua to xanh
+    // To mau cot chenh lech: thieu hoac loi to do, thua to xanh
     private static class DifferenceRenderer extends DefaultTableCellRenderer {
         private static final Color COLOR_SHORTAGE = new Color(255, 200, 200);
         private static final Color COLOR_SURPLUS  = new Color(200, 255, 200);
@@ -256,8 +290,8 @@ public class StockCheckPanel extends JPanel {
                         c.setForeground(Color.BLACK);
                     }
                 } catch (NumberFormatException e) {
-                    c.setBackground(COLOR_MATCH);
-                    c.setForeground(Color.BLACK);
+                    c.setBackground(COLOR_SHORTAGE);
+                    c.setForeground(Color.RED);
                 }
             }
             setHorizontalAlignment(CENTER);

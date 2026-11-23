@@ -34,7 +34,7 @@ public class ImportPanel extends JPanel {
     private JTable importTable;
     private JLabel lblTotal;
     private List<Supplier> suppliers = new ArrayList<>();
-    private List<Product> products = new ArrayList<>();
+    private List<Integer> rowProductIds = new ArrayList<>();
     private JComboBox<String> supplierCombo;
     private JTextField txtNote;
 
@@ -75,6 +75,24 @@ public class ImportPanel extends JPanel {
             }
         } catch (SQLException ex) {
             ErrorHandler.showError(this, ex);
+        }
+    }
+
+    // Tai lai danh sach NCC nhung giu nguyen NCC dang chon
+    public void refreshSuppliers() {
+        int currentSupId = -1;
+        int curIdx = supplierCombo.getSelectedIndex();
+        if (curIdx >= 0 && curIdx < suppliers.size()) {
+            currentSupId = suppliers.get(curIdx).getSupplierId();
+        }
+        loadSuppliers();
+        if (currentSupId != -1) {
+            for (int i = 0; i < suppliers.size(); i++) {
+                if (suppliers.get(i).getSupplierId() == currentSupId) {
+                    supplierCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
         }
     }
 
@@ -132,16 +150,8 @@ public class ImportPanel extends JPanel {
         return panel;
     }
 
-    private Product findProductByName(String name) {
-        for (Product p : products) {
-            if (p.getName().equals(name)) {
-                return p;
-            }
-        }
-        return null;
-    }
-
     private void addRow() {
+        List<Product> products;
         try {
             products = productDAO.findAll();
         } catch (SQLException ex) {
@@ -154,43 +164,55 @@ public class ImportPanel extends JPanel {
             return;
         }
 
-        String[] productNames = new String[products.size()];
+        String[] options = new String[products.size()];
         for (int i = 0; i < products.size(); i++) {
-            productNames[i] = products.get(i).getName();
+            Product p = products.get(i);
+            options[i] = "[" + p.getProductId() + "] " + p.getName();
         }
 
-        String selectedName = (String) JOptionPane.showInputDialog(
+        String selectedOption = (String) JOptionPane.showInputDialog(
             this,
             "Chọn sản phẩm cần nhập:",
             "Thêm dòng nhập kho",
             JOptionPane.PLAIN_MESSAGE,
             null,
-            productNames,
-            productNames[0]
+            options,
+            options[0]
         );
 
-        if (selectedName == null) return;
+        if (selectedOption == null) return;
 
-        // Khong cho them trung san pham trong cung 1 phieu
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            if (selectedName.equals(tableModel.getValueAt(i, 0))) {
-                JOptionPane.showMessageDialog(this,
-                    "Sản phẩm \"" + selectedName + "\" đã có trong phiếu!\n"
-                    + "Hãy sửa số lượng ở dòng " + (i + 1) + " thay vì thêm mới.",
-                    "Trùng sản phẩm", JOptionPane.WARNING_MESSAGE);
-                return;
+        int pickedIndex = -1;
+        for (int i = 0; i < options.length; i++) {
+            if (options[i].equals(selectedOption)) {
+                pickedIndex = i;
+                break;
             }
         }
+        if (pickedIndex < 0) return;
 
-        Product p = findProductByName(selectedName);
-        if (p == null) return;
+        Product p = products.get(pickedIndex);
+
+        // Khong cho them trung san pham (kiem tra theo PRODUCT_ID)
+        int dupRow = rowProductIds.indexOf(p.getProductId());
+        if (dupRow != -1) {
+            JOptionPane.showMessageDialog(this,
+                "Sản phẩm \"" + p.getName() + "\" đã có trong phiếu!\n"
+                + "Hãy sửa số lượng ở dòng " + (dupRow + 1) + " thay vì thêm mới.",
+                "Trùng sản phẩm", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
         BigDecimal defaultPrice = p.getCurrentPrice();
+        rowProductIds.add(p.getProductId());
         tableModel.addRow(new Object[]{p.getName(), 1, defaultPrice, defaultPrice});
         updateTotal();
     }
 
     private void removeRow() {
+        if (importTable.isEditing()) {
+            importTable.getCellEditor().stopCellEditing();
+        }
         int selectedRow = importTable.getSelectedRow();
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(this,
@@ -198,22 +220,27 @@ public class ImportPanel extends JPanel {
                 "Chưa chọn dòng", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        rowProductIds.remove(selectedRow);
         tableModel.removeRow(selectedRow);
         updateTotal();
     }
 
     private void recalculateRow(int row) {
+        BigDecimal lineTotal = BigDecimal.ZERO;
         try {
             int qty = Integer.parseInt(tableModel.getValueAt(row, 1).toString().trim());
             BigDecimal price = new BigDecimal(tableModel.getValueAt(row, 2).toString().trim());
-            BigDecimal lineTotal = price.multiply(BigDecimal.valueOf(qty));
-
-            // Tam go listener de tranh lap vo han khi set cot thanh tien
-            tableModel.removeTableModelListener(tableListener);
-            tableModel.setValueAt(lineTotal, row, 3);
-            tableModel.addTableModelListener(tableListener);
+            if (qty > 0 && price.compareTo(BigDecimal.ZERO) >= 0) {
+                lineTotal = price.multiply(BigDecimal.valueOf(qty));
+            }
         } catch (Exception ignored) {
+            // Neu go sai dinh dang so thi dat tam thanh tien = 0
         }
+
+        // Tam go listener de tranh lap vo han khi set cot thanh tien
+        tableModel.removeTableModelListener(tableListener);
+        tableModel.setValueAt(lineTotal, row, 3);
+        tableModel.addTableModelListener(tableListener);
     }
 
     private void updateTotal() {
@@ -258,9 +285,14 @@ public class ImportPanel extends JPanel {
 
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             try {
-                String productName = tableModel.getValueAt(i, 0).toString();
-                int qty = Integer.parseInt(tableModel.getValueAt(i, 1).toString().trim());
-                BigDecimal price = new BigDecimal(tableModel.getValueAt(i, 2).toString().trim());
+                Object qtyObj = tableModel.getValueAt(i, 1);
+                Object priceObj = tableModel.getValueAt(i, 2);
+                if (qtyObj == null || priceObj == null) {
+                    throw new NumberFormatException();
+                }
+
+                int qty = Integer.parseInt(qtyObj.toString().trim());
+                BigDecimal price = new BigDecimal(priceObj.toString().trim());
 
                 if (qty <= 0) {
                     JOptionPane.showMessageDialog(this,
@@ -275,10 +307,8 @@ public class ImportPanel extends JPanel {
                     return;
                 }
 
-                Product p = findProductByName(productName);
-                if (p != null) {
-                    receipt.getLines().add(new ImportLine(0, p.getProductId(), price, qty));
-                }
+                int productId = rowProductIds.get(i);
+                receipt.getLines().add(new ImportLine(0, productId, price, qty));
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this,
                     "Dòng " + (i + 1) + ": Vui lòng nhập số hợp lệ!",
@@ -299,11 +329,12 @@ public class ImportPanel extends JPanel {
             summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
             summary.append(String.format("Tổng tiền: %,.0f VNĐ\n", receipt.getTotal()));
             summary.append("─────────────────────────\n");
-            summary.append("Đã lưu vào cơ sở dữ liệu và cập nhật tồn kho!");
+            summary.append("Đã lưu phiếu nhập và cập nhật tồn kho thành công.");
 
             JOptionPane.showMessageDialog(this, summary.toString(),
                 "Lưu phiếu nhập thành công", JOptionPane.INFORMATION_MESSAGE);
 
+            rowProductIds.clear();
             tableModel.setRowCount(0);
             txtNote.setText("");
             updateTotal();
