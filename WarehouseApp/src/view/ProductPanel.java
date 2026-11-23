@@ -164,7 +164,8 @@ public class ProductPanel extends JPanel {
                 || p.getName().toLowerCase().contains(keyword)
                 || p.getBarcode().contains(keyword);
             boolean matchType = wantedType == null || wantedType.equals(p.getProductType());
-            boolean matchStock = !lowStockOnly.isSelected() || p.isLowStock();
+            boolean matchStock = !lowStockOnly.isSelected()
+                || (p.isLowStock() && p.getStatus() == ProductStatus.ON_SALE);
             if (matchText && matchType && matchStock) {
                 shown.add(p);
                 model.addRow(new Object[] {
