@@ -1,27 +1,38 @@
 package view;
 
+import dao.ExportReceiptDAO;
+import dao.ProductDAO;
+import dao.SupplierDAO;
 import model.ExportLine;
 import model.ExportReason;
 import model.ExportReceipt;
 import model.Product;
-import model.ReturnSupplier;
 import model.Supplier;
+import util.ErrorHandler;
+import util.Session;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ItemEvent;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
-// Tab lap phieu xuat kho
+// Tab lap phieu xuat kho (noi DB that qua DAO)
 public class ExportPanel extends JPanel {
+
+    private final SupplierDAO supplierDAO = new SupplierDAO();
+    private final ProductDAO productDAO = new ProductDAO();
+    private final ExportReceiptDAO exportReceiptDAO = new ExportReceiptDAO();
 
     private DefaultTableModel tableModel;
     private JTable exportTable;
     private JComboBox<ExportReason> reasonCombo;
-    private List<Supplier> suppliers;
+    private List<Supplier> suppliers = new ArrayList<>();
+    private List<Product> products = new ArrayList<>();
     private JComboBox<String> supplierCombo;
 
     public ExportPanel() {
@@ -45,12 +56,8 @@ public class ExportPanel extends JPanel {
         panel.add(reasonCombo);
 
         panel.add(new JLabel("  NCC nhận:"));
-        suppliers = MockData.getSuppliers();
-        String[] supplierNames = new String[suppliers.size()];
-        for (int i = 0; i < suppliers.size(); i++) {
-            supplierNames[i] = suppliers.get(i).getName();
-        }
-        supplierCombo = new JComboBox<>(supplierNames);
+        supplierCombo = new JComboBox<>();
+        loadSuppliers();
         supplierCombo.setEnabled(false); // chi bat khi ly do la RETURN
 
         reasonCombo.addItemListener(e -> {
@@ -63,6 +70,18 @@ public class ExportPanel extends JPanel {
         panel.add(supplierCombo);
 
         return panel;
+    }
+
+    private void loadSuppliers() {
+        try {
+            suppliers = supplierDAO.findAll();
+            supplierCombo.removeAllItems();
+            for (Supplier s : suppliers) {
+                supplierCombo.addItem(s.getName());
+            }
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+        }
     }
 
     // Bang chi tiet hang xuat
@@ -102,8 +121,28 @@ public class ExportPanel extends JPanel {
         return panel;
     }
 
+    private Product findProductByName(String name) {
+        for (Product p : products) {
+            if (p.getName().equals(name)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
     private void addRow() {
-        List<Product> products = MockData.getProducts();
+        try {
+            products = productDAO.findAll();
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
+            return;
+        }
+
+        if (products.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Không có sản phẩm nào trong kho!", "Thông báo", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         String[] productNames = new String[products.size()];
         for (int i = 0; i < products.size(); i++) {
             productNames[i] = products.get(i).getName();
@@ -131,7 +170,7 @@ public class ExportPanel extends JPanel {
             }
         }
 
-        Product p = MockData.findProductByName(selectedName);
+        Product p = findProductByName(selectedName);
         if (p == null) return;
 
         tableModel.addRow(new Object[]{p.getName(), p.getCurrentStock(), 1});
@@ -149,6 +188,10 @@ public class ExportPanel extends JPanel {
     }
 
     private void saveReceipt() {
+        if (exportTable.isEditing()) {
+            exportTable.getCellEditor().stopCellEditing();
+        }
+
         if (tableModel.getRowCount() == 0) {
             JOptionPane.showMessageDialog(this,
                 "Phiếu xuất phải có ít nhất 1 dòng sản phẩm!",
@@ -168,9 +211,11 @@ public class ExportPanel extends JPanel {
             return;
         }
 
+        int employeeId = Session.currentUser != null ? Session.currentUser.getEmployeeId() : 101;
+
         // Phieu xuat moi lap chua co nguoi duyet (managerId = null)
         ExportReceipt receipt = new ExportReceipt();
-        receipt.setEmployeeId(101);
+        receipt.setEmployeeId(employeeId);
         receipt.setManagerId(null);
         receipt.setExportDate(LocalDate.now());
         receipt.setReason(reason);
@@ -196,7 +241,7 @@ public class ExportPanel extends JPanel {
                     return;
                 }
 
-                Product p = MockData.findProductByName(productName);
+                Product p = findProductByName(productName);
                 if (p != null) {
                     receipt.getLines().add(new ExportLine(0, p.getProductId(), qty));
                 }
@@ -208,27 +253,30 @@ public class ExportPanel extends JPanel {
             }
         }
 
-        ReturnSupplier returnInfo = isReturn
-            ? new ReturnSupplier(0, selectedSupplier.getSupplierId())
-            : null;
+        Integer returnSupplierId = isReturn ? selectedSupplier.getSupplierId() : null;
 
-        StringBuilder summary = new StringBuilder();
-        summary.append("PHIẾU XUẤT KHO\n");
-        summary.append("─────────────────────────\n");
-        summary.append("Lý do: ").append(receipt.getReason().getDisplayName())
-               .append(" [").append(receipt.getReason().getDbValue()).append("]\n");
-        if (returnInfo != null) {
-            summary.append("NCC nhận: ").append(selectedSupplier.getName())
-                   .append(" (ID: ").append(returnInfo.getSupplierId()).append(")\n");
+        // Luu phieu xuat xuong SQL Server o trang thai cho duyet
+        try {
+            int newId = exportReceiptDAO.insert(receipt, returnSupplierId);
+
+            StringBuilder summary = new StringBuilder();
+            summary.append("PHIẾU XUẤT KHO #").append(newId).append("\n");
+            summary.append("─────────────────────────\n");
+            summary.append("Lý do: ").append(receipt.getReason().getDisplayName()).append("\n");
+            if (isReturn) {
+                summary.append("NCC nhận: ").append(selectedSupplier.getName()).append("\n");
+            }
+            summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
+            summary.append("─────────────────────────\n");
+            summary.append("Trạng thái: CHỜ DUYỆT\n");
+            summary.append("(Đã lưu vào cơ sở dữ liệu, chờ Quản lý duyệt)");
+
+            JOptionPane.showMessageDialog(this, summary.toString(),
+                "Lưu phiếu xuất thành công", JOptionPane.INFORMATION_MESSAGE);
+
+            tableModel.setRowCount(0);
+        } catch (SQLException ex) {
+            ErrorHandler.showError(this, ex);
         }
-        summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
-        summary.append("─────────────────────────\n");
-        summary.append("Trạng thái: CHỜ DUYỆT (isApproved = ").append(receipt.isApproved()).append(")\n");
-        summary.append("(Quản lý sẽ duyệt trên màn hình Duyệt phiếu)");
-
-        JOptionPane.showMessageDialog(this, summary.toString(),
-            "Lưu phiếu xuất thành công", JOptionPane.INFORMATION_MESSAGE);
-
-        tableModel.setRowCount(0);
     }
 }
