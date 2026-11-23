@@ -28,7 +28,7 @@ public class ApprovalPanel extends JPanel {
     private final Map<Integer, String> nameCache = new HashMap<>();
 
     private final DefaultTableModel exportModel =
-        createModel("Ma phieu", "Nhan vien kho", "Ngay xuat", "Ly do", "So san pham");
+        createModel("Ma phieu", "Nhan vien kho", "Ngay xuat", "Ly do", "So mat hang", "Tong so luong");
     private final DefaultTableModel checkModel =
         createModel("Ma phieu", "Nhan vien kho", "Ngay kiem", "So san pham", "So SP lech");
 
@@ -95,7 +95,8 @@ public class ApprovalPanel extends JPanel {
                     employeeName(r.getEmployeeId()),
                     r.getExportDate(),
                     r.getReason().getDisplayName(),
-                    r.getLines().size()
+                    r.getLines().size(),
+                    r.getLines().stream().mapToInt(l -> l.getQuantity()).sum()  
                 });
             }
 
@@ -165,7 +166,7 @@ public class ApprovalPanel extends JPanel {
                 success++;
             } catch (SQLException ex) {
                 errors.append("\n- Phieu ").append(receiptId).append(": ")
-                    .append(ErrorHandler.translateSqlException(ex));
+                    .append(approveError(ex));
             }
         }
 
@@ -177,5 +178,13 @@ public class ApprovalPanel extends JPanel {
             JOptionPane.showMessageDialog(this, message);
         }
         loadData();
+    }
+    // Doi loi vuot ton kho sang cau de hieu; cac loi khac dung ErrorHandler 
+    private static String approveError(SQLException ex) {
+        String msg = ex.getMessage() != null ? ex.getMessage() : "";
+        if (msg.contains("CK_PRODUCT_CURRENTSTOCK")) {
+            return "Khong du hang trong kho de xuat (ton kho khong duoc am).";
+        }
+        return ErrorHandler.translateSqlException(ex);
     }
 }

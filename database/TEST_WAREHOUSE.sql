@@ -165,28 +165,29 @@ GO
 BEGIN TRANSACTION;
 GO
 
+DECLARE @before INT = (SELECT CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 3);
+
 INSERT INTO WAREHOUSE.STOCK_CHECK (EMPLOYEE_ID, MANAGER_ID, CHECK_DATE, STATUS, APPROVE_TIME)
 VALUES (101, NULL, CAST(GETDATE() AS DATE), N'WAITING FOR APPROVAL', NULL);
-
 DECLARE @test_check_id INT = SCOPE_IDENTITY();
 
+-- Lúc đếm: hệ thống = @before, thực tế thiếu 4
 INSERT INTO WAREHOUSE.CHECK_DETAIL (STOCK_CHECK_ID, PRODUCT_ID, SYSTEM_QUANTITY, ACTUAL_QUANTITY)
-VALUES (@test_check_id, 3, 59, 55);
+VALUES (@test_check_id, 3, @before, @before - 4);
 
-EXEC WAREHOUSE.SP_APPROVE_STOCK_CHECK
-    @StockCheckId = @test_check_id,
-    @ManagerId    = 1;
+-- Sau khi lập phiếu, nhập thêm 10 (trigger cộng kho)
+INSERT INTO WAREHOUSE.IMPORT_RECEIPT (EMPLOYEE_ID, SUPPLIER_ID, IMPORT_DATE, DESCRIPTION)
+VALUES (101, 1, GETDATE(), N'Test D6');
+INSERT INTO WAREHOUSE.INCLUDES (IMPORT_RECEIPT_ID, PRODUCT_ID, IMPORT_PRICE, QUANTITY)
+VALUES (SCOPE_IDENTITY(), 3, 10000, 10);
 
-DECLARE @stock_after_check INT;
-SELECT @stock_after_check = CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 3;
+EXEC WAREHOUSE.SP_APPROVE_STOCK_CHECK @StockCheckId = @test_check_id, @ManagerId = 1;
 
-DECLARE @check_status NVARCHAR(20);
-SELECT @check_status = STATUS FROM WAREHOUSE.STOCK_CHECK WHERE STOCK_CHECK_ID = @test_check_id;
-
-IF @stock_after_check = 55 AND @check_status = N'APPROVED'
-    PRINT N'PASS: Duyet kiem ke va cap nhat ton kho dung';
+DECLARE @after INT = (SELECT CURRENT_STOCK FROM CATALOG.PRODUCT WHERE PRODUCT_ID = 3);
+IF @after = @before + 10 - 4
+    PRINT N'PASS: Duyet kiem ke cong chenh lech, khong mat hang nhap sau';
 ELSE
-    PRINT N'FAIL: Duyet kiem ke sai';
+    PRINT N'FAIL: Duyet kiem ke sai, ton = ' + CAST(@after AS NVARCHAR(20));
 GO
 
 ROLLBACK TRANSACTION;

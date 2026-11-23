@@ -30,7 +30,7 @@ public abstract class Product {
     }
 
     public boolean isLowStock() {
-        return this.currentStock <= this.minStock;
+        return this.currentStock < this.minStock;
     }
 
     public abstract String getProductType();
