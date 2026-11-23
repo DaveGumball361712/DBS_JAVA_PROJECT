@@ -1,4 +1,5 @@
 package view;
+import dao.ReportDAO;
 import java.awt.*;
 import java.math.BigDecimal;
 import java.sql.SQLException;
@@ -7,8 +8,6 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-
-import dao.ReportDAO;
 import util.ErrorHandler;
 
 public class ReportPanel extends JPanel {
@@ -72,8 +71,8 @@ public class ReportPanel extends JPanel {
     private JTabbedPane createReportTabs() {
         JTabbedPane reportTabs = new JTabbedPane();
         reportTabs.addTab("Doanh thu theo ngay", wrapInTable(dailyModel));
-        reportTabs.addTab("Theo thu ngan (tat ca)", wrapInTable(cashierModel));
-        reportTabs.addTab("San pham ban chay (tat ca)", wrapInTable(topProductModel));
+        reportTabs.addTab("Theo thu ngan", wrapInTable(cashierModel));
+        reportTabs.addTab("San pham ban chay", wrapInTable(topProductModel));
         reportTabs.addTab("Hang sap het", wrapInTable(lowStockModel));
         reportTabs.addTab("Nhap theo nha cung cap", wrapInTable(supplierModel));
         return reportTabs;
@@ -127,8 +126,8 @@ public class ReportPanel extends JPanel {
             revenueLabel.setText("Tong doanh thu: " + money(totalRevenue) + " VND");
             orderCountLabel.setText("So don: " + totalOrders);
 
-            fill(cashierModel, dao.revenueByCashier());
-            fill(topProductModel, dao.topProducts());
+            fill(cashierModel, dao.revenueByCashier(from, to));
+            fill(topProductModel, dao.topProducts(from, to));
             fill(lowStockModel, dao.lowStock());
             fill(supplierModel, dao.importBySupplier());
         } catch (SQLException ex) {
