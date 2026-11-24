@@ -141,20 +141,53 @@ public class ProductDAO extends BaseDAO<Product, Integer> {
 
     @Override
     public boolean update(Product obj) throws SQLException {
-        String sql = "UPDATE CATALOG.PRODUCT SET CATEGORY_ID = ?, NAME = ?, CURRENT_PRICE = ?, STATUS = ?, " +
-                    "MIN_STOCK = ?, BARCODE = ?, CURRENT_STOCK = ?, MEASURE_UNIT = ? WHERE PRODUCT_ID = ?";
-        try (Connection conn = getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, obj.getCategoryId());
-            ps.setString(2, obj.getName());
-            ps.setBigDecimal(3, obj.getCurrentPrice());
-            ps.setString(4, obj.getStatus().getDbValue());
-            ps.setInt(5, obj.getMinStock());
-            ps.setString(6, obj.getBarcode());
-            ps.setInt(7, obj.getCurrentStock());
-            ps.setString(8, obj.getMeasureUnit());
-            ps.setInt(9, obj.getProductId());
-            return ps.executeUpdate() > 0;
+        String sqlProd = "UPDATE CATALOG.PRODUCT SET CATEGORY_ID = ?, NAME = ?, CURRENT_PRICE = ?, STATUS = ?, " +
+                        "MIN_STOCK = ?, BARCODE = ?, CURRENT_STOCK = ?, MEASURE_UNIT = ? WHERE PRODUCT_ID = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                // Cập nhật bảng cha CATALOG.PRODUCT
+                int affected;
+                try (PreparedStatement ps = conn.prepareStatement(sqlProd)) {
+                    ps.setInt(1, obj.getCategoryId());
+                    ps.setString(2, obj.getName());
+                    ps.setBigDecimal(3, obj.getCurrentPrice());
+                    ps.setString(4, obj.getStatus().getDbValue());
+                    ps.setInt(5, obj.getMinStock());
+                    ps.setString(6, obj.getBarcode());
+                    ps.setInt(7, obj.getCurrentStock());
+                    ps.setString(8, obj.getMeasureUnit());
+                    ps.setInt(9, obj.getProductId());
+                    affected = ps.executeUpdate();
+                }
+
+                // Cập nhật bảng con CATALOG.FOODS hoặc CATALOG.ELECTRONICS
+                if (obj instanceof Foods f) {
+                    try (PreparedStatement psSub = conn.prepareStatement(
+                            "UPDATE CATALOG.FOODS SET PRESERVE_DESCRIPTION = ?, DAY_OF_EXPIRE = ? WHERE PRODUCT_ID = ?")) {
+                        psSub.setString(1, f.getPreserveDescription());
+                        psSub.setInt(2, f.getDayOfExpire());
+                        psSub.setInt(3, f.getProductId());
+                        psSub.executeUpdate();
+                    }
+                } else if (obj instanceof Electronics el) {
+                    try (PreparedStatement psSub = conn.prepareStatement(
+                            "UPDATE CATALOG.ELECTRONICS SET MONTHS_OF_WARRANTY = ? WHERE PRODUCT_ID = ?")) {
+                        psSub.setInt(1, el.getMonthsOfWarranty());
+                        psSub.setInt(2, el.getProductId());
+                        psSub.executeUpdate();
+                    }
+                }
+
+                conn.commit();
+                return affected > 0;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 
