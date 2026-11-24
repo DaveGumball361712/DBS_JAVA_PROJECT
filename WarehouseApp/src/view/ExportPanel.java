@@ -8,6 +8,7 @@ import model.ExportReason;
 import model.ExportReceipt;
 import model.Product;
 import model.Supplier;
+import util.DBConnection;
 import util.ErrorHandler;
 import util.Session;
 
@@ -15,11 +16,16 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ItemEvent;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 // Tab lap phieu xuat kho (noi DB that qua DAO)
 public class ExportPanel extends JPanel {
@@ -32,8 +38,9 @@ public class ExportPanel extends JPanel {
     private JTable exportTable;
     private JComboBox<ExportReason> reasonCombo;
     private List<Supplier> suppliers = new ArrayList<>();
-    private List<Product> products = new ArrayList<>();
+    private List<Integer> rowProductIds = new ArrayList<>();
     private JComboBox<String> supplierCombo;
+    private boolean refreshingSuppliers = false;
 
     public ExportPanel() {
         setLayout(new BorderLayout(5, 5));
@@ -64,6 +71,22 @@ public class ExportPanel extends JPanel {
             if (e.getStateChange() == ItemEvent.SELECTED) {
                 boolean isReturn = reasonCombo.getSelectedItem() == ExportReason.RETURN;
                 supplierCombo.setEnabled(isReturn);
+                if (!isReturn && supplierCombo.getItemCount() > 0) {
+                    supplierCombo.setSelectedIndex(0);
+                } else if (isReturn && tableModel != null && tableModel.getRowCount() > 0) {
+                    // Chuyen sang Tra NCC thi xoa dong cu de tranh san pham khong thuoc NCC
+                    clearTable();
+                }
+            }
+        });
+
+        // Khi doi NCC trong che do Tra hang thi xoa bang de chon lai dung SP cua NCC moi
+        supplierCombo.addItemListener(e -> {
+            if (!refreshingSuppliers
+                    && e.getStateChange() == ItemEvent.SELECTED
+                    && reasonCombo.getSelectedItem() == ExportReason.RETURN
+                    && tableModel != null && tableModel.getRowCount() > 0) {
+                clearTable();
             }
         });
 
@@ -76,12 +99,59 @@ public class ExportPanel extends JPanel {
         try {
             suppliers = supplierDAO.findAll();
             supplierCombo.removeAllItems();
+            supplierCombo.addItem("-- Chọn nhà cung cấp --");
             for (Supplier s : suppliers) {
                 supplierCombo.addItem(s.getName());
             }
         } catch (SQLException ex) {
             ErrorHandler.showError(this, ex);
         }
+    }
+
+    // Tai lai danh sach NCC nhung khong xoa bang dang lap
+    public void refreshSuppliers() {
+        Supplier current = getSelectedSupplier();
+        int currentSupId = current != null ? current.getSupplierId() : -1;
+        refreshingSuppliers = true;
+        try {
+            loadSuppliers();
+            if (currentSupId != -1) {
+                for (int i = 0; i < suppliers.size(); i++) {
+                    if (suppliers.get(i).getSupplierId() == currentSupId) {
+                        supplierCombo.setSelectedIndex(i + 1);
+                        break;
+                    }
+                }
+            }
+        } finally {
+            refreshingSuppliers = false;
+        }
+    }
+
+    private Supplier getSelectedSupplier() {
+        int supIdx = supplierCombo.getSelectedIndex() - 1; // tru 1 dong placeholder dau tien
+        return (supIdx >= 0 && supIdx < suppliers.size()) ? suppliers.get(supIdx) : null;
+    }
+
+    private void clearTable() {
+        rowProductIds.clear();
+        tableModel.setRowCount(0);
+    }
+
+    // Lay tap PRODUCT_ID ma nha cung cap nay cung cap tu bang WAREHOUSE.PRODUCT_SUPPLY
+    private Set<Integer> getSuppliedProductIds(int supplierId) throws SQLException {
+        Set<Integer> ids = new HashSet<>();
+        String sql = "SELECT PRODUCT_ID FROM WAREHOUSE.PRODUCT_SUPPLY WHERE SUPPLIER_ID = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, supplierId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getInt("PRODUCT_ID"));
+                }
+            }
+        }
+        return ids;
     }
 
     // Bang chi tiet hang xuat
@@ -121,62 +191,97 @@ public class ExportPanel extends JPanel {
         return panel;
     }
 
-    private Product findProductByName(String name) {
-        for (Product p : products) {
-            if (p.getName().equals(name)) {
-                return p;
-            }
-        }
-        return null;
-    }
-
     private void addRow() {
+        boolean isReturn = (reasonCombo.getSelectedItem() == ExportReason.RETURN);
+        Supplier selectedSupplier = getSelectedSupplier();
+
+        if (isReturn && selectedSupplier == null) {
+            JOptionPane.showMessageDialog(this,
+                "Vui lòng chọn nhà cung cấp nhận hàng trước khi thêm sản phẩm trả!",
+                "Thiếu thông tin", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        List<Product> availableProducts;
         try {
-            products = productDAO.findAll();
+            List<Product> allProducts = productDAO.findAll();
+            if (isReturn) {
+                // Chi loc cac san pham ma NCC dang chon co cung cap
+                Set<Integer> suppliedIds = getSuppliedProductIds(selectedSupplier.getSupplierId());
+                availableProducts = new ArrayList<>();
+                for (Product p : allProducts) {
+                    if (suppliedIds.contains(p.getProductId())) {
+                        availableProducts.add(p);
+                    }
+                }
+            } else {
+                availableProducts = allProducts;
+            }
         } catch (SQLException ex) {
             ErrorHandler.showError(this, ex);
             return;
         }
 
-        if (products.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Không có sản phẩm nào trong kho!", "Thông báo", JOptionPane.WARNING_MESSAGE);
+        if (availableProducts.isEmpty()) {
+            String msg = isReturn
+                ? "Nhà cung cấp \"" + selectedSupplier.getName() + "\" chưa có sản phẩm nào trong danh mục cung cấp!"
+                : "Không có sản phẩm nào trong kho!";
+            JOptionPane.showMessageDialog(this, msg, "Thông báo", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        String[] productNames = new String[products.size()];
-        for (int i = 0; i < products.size(); i++) {
-            productNames[i] = products.get(i).getName();
+        String[] options = new String[availableProducts.size()];
+        for (int i = 0; i < availableProducts.size(); i++) {
+            Product p = availableProducts.get(i);
+            options[i] = "[" + p.getProductId() + "] " + p.getName() + " (Tồn: " + p.getCurrentStock() + ")";
         }
 
-        String selectedName = (String) JOptionPane.showInputDialog(
+        String selectedOption = (String) JOptionPane.showInputDialog(
             this,
             "Chọn sản phẩm cần xuất:",
             "Thêm dòng xuất kho",
             JOptionPane.PLAIN_MESSAGE,
             null,
-            productNames,
-            productNames[0]
+            options,
+            options[0]
         );
 
-        if (selectedName == null) return;
+        if (selectedOption == null) return;
 
-        // Kiem tra trung san pham
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            if (selectedName.equals(tableModel.getValueAt(i, 0))) {
-                JOptionPane.showMessageDialog(this,
-                    "Sản phẩm \"" + selectedName + "\" đã có trong phiếu!",
-                    "Trùng sản phẩm", JOptionPane.WARNING_MESSAGE);
-                return;
+        int pickedIndex = -1;
+        for (int i = 0; i < options.length; i++) {
+            if (options[i].equals(selectedOption)) {
+                pickedIndex = i;
+                break;
             }
         }
+        if (pickedIndex < 0) return;
 
-        Product p = findProductByName(selectedName);
-        if (p == null) return;
+        Product p = availableProducts.get(pickedIndex);
 
+        if (p.getCurrentStock() <= 0) {
+            JOptionPane.showMessageDialog(this,
+                "Sản phẩm \"" + p.getName() + "\" hiện đã hết tồn kho (tồn = 0), không thể xuất!",
+                "Hết hàng", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Kiem tra trung san pham theo PRODUCT_ID
+        if (rowProductIds.contains(p.getProductId())) {
+            JOptionPane.showMessageDialog(this,
+                "Sản phẩm \"" + p.getName() + "\" đã có trong phiếu!",
+                "Trùng sản phẩm", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        rowProductIds.add(p.getProductId());
         tableModel.addRow(new Object[]{p.getName(), p.getCurrentStock(), 1});
     }
 
     private void removeRow() {
+        if (exportTable.isEditing()) {
+            exportTable.getCellEditor().stopCellEditing();
+        }
         int selectedRow = exportTable.getSelectedRow();
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(this,
@@ -184,6 +289,7 @@ public class ExportPanel extends JPanel {
                 "Chưa chọn dòng", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        rowProductIds.remove(selectedRow);
         tableModel.removeRow(selectedRow);
     }
 
@@ -192,22 +298,21 @@ public class ExportPanel extends JPanel {
             exportTable.getCellEditor().stopCellEditing();
         }
 
+        ExportReason reason = (ExportReason) reasonCombo.getSelectedItem();
+        boolean isReturn = (reason == ExportReason.RETURN);
+        Supplier selectedSupplier = getSelectedSupplier();
+
+        if (isReturn && selectedSupplier == null) {
+            JOptionPane.showMessageDialog(this,
+                "Vui lòng chọn nhà cung cấp nhận hàng cho phiếu trả hàng!",
+                "Thiếu thông tin", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
         if (tableModel.getRowCount() == 0) {
             JOptionPane.showMessageDialog(this,
                 "Phiếu xuất phải có ít nhất 1 dòng sản phẩm!",
                 "Lỗi", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        ExportReason reason = (ExportReason) reasonCombo.getSelectedItem();
-        boolean isReturn = (reason == ExportReason.RETURN);
-        int supIdx = supplierCombo.getSelectedIndex();
-        Supplier selectedSupplier = (supIdx >= 0 && supIdx < suppliers.size()) ? suppliers.get(supIdx) : null;
-
-        if (isReturn && selectedSupplier == null) {
-            JOptionPane.showMessageDialog(this,
-                "Lý do Trả NCC phải chọn nhà cung cấp nhận hàng!",
-                "Lỗi R15", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -225,7 +330,11 @@ public class ExportPanel extends JPanel {
             try {
                 String productName = tableModel.getValueAt(i, 0).toString();
                 int stock = Integer.parseInt(tableModel.getValueAt(i, 1).toString().trim());
-                int qty = Integer.parseInt(tableModel.getValueAt(i, 2).toString().trim());
+                Object qtyObj = tableModel.getValueAt(i, 2);
+                if (qtyObj == null) {
+                    throw new NumberFormatException();
+                }
+                int qty = Integer.parseInt(qtyObj.toString().trim());
 
                 if (qty <= 0) {
                     JOptionPane.showMessageDialog(this,
@@ -241,10 +350,8 @@ public class ExportPanel extends JPanel {
                     return;
                 }
 
-                Product p = findProductByName(productName);
-                if (p != null) {
-                    receipt.getLines().add(new ExportLine(0, p.getProductId(), qty));
-                }
+                int productId = rowProductIds.get(i);
+                receipt.getLines().add(new ExportLine(0, productId, qty));
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(this,
                     "Dòng " + (i + 1) + ": Vui lòng nhập số hợp lệ!",
@@ -268,13 +375,13 @@ public class ExportPanel extends JPanel {
             }
             summary.append("Số dòng: ").append(receipt.getLines().size()).append("\n");
             summary.append("─────────────────────────\n");
-            summary.append("Trạng thái: CHỜ DUYỆT\n");
-            summary.append("(Đã lưu vào cơ sở dữ liệu, chờ Quản lý duyệt)");
+            summary.append("Trạng thái: Chờ duyệt\n");
+            summary.append("Phiếu xuất đã được lưu và đang chờ quản lý duyệt.");
 
             JOptionPane.showMessageDialog(this, summary.toString(),
                 "Lưu phiếu xuất thành công", JOptionPane.INFORMATION_MESSAGE);
 
-            tableModel.setRowCount(0);
+            clearTable();
         } catch (SQLException ex) {
             ErrorHandler.showError(this, ex);
         }

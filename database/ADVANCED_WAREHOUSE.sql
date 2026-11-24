@@ -10,7 +10,7 @@ SELECT
     ir.IMPORT_RECEIPT_ID,
     ir.IMPORT_DATE,
     ir.EMPLOYEE_ID,
-    e.FIRST_NAME + N' ' + e.LAST_NAME  AS EMPLOYEE_NAME,
+    e.LAST_NAME + N' ' + e.FIRST_NAME  AS EMPLOYEE_NAME,
     ir.SUPPLIER_ID,
     s.NAME                              AS SUPPLIER_NAME,
     ir.DESCRIPTION,
@@ -136,20 +136,34 @@ BEGIN
           AND i.MANAGER_ID IS NOT NULL
     )
     BEGIN
+        DECLARE @exported TABLE (PRODUCT_ID INT, TOTAL_EXPORTED INT);
+        INSERT INTO @exported (PRODUCT_ID, TOTAL_EXPORTED)
+        SELECT ef.PRODUCT_ID, SUM(ef.QUANTITY)
+        FROM WAREHOUSE.EXPORT_FROM ef
+        JOIN inserted i 
+            ON ef.EXPORT_RECEIPT_ID = i.EXPORT_RECEIPT_ID
+        JOIN deleted d 
+            ON i.EXPORT_RECEIPT_ID = d.EXPORT_RECEIPT_ID
+        WHERE d.MANAGER_ID IS NULL 
+          AND i.MANAGER_ID IS NOT NULL
+        GROUP BY ef.PRODUCT_ID;
+
+        -- Chan duyet neu khong du ton kho, bao loi tieng Viet ngan gon
+        IF EXISTS (
+            SELECT 1
+            FROM CATALOG.PRODUCT p
+            JOIN @exported e ON p.PRODUCT_ID = e.PRODUCT_ID
+            WHERE p.CURRENT_STOCK < e.TOTAL_EXPORTED
+        )
+        BEGIN
+            ROLLBACK TRANSACTION;
+            ;THROW 50013, N'Không đủ tồn kho để duyệt phiếu xuất.', 1;
+        END
+
         UPDATE p
-        SET p.CURRENT_STOCK = p.CURRENT_STOCK - exp_sum.TOTAL_EXPORTED
+        SET p.CURRENT_STOCK = p.CURRENT_STOCK - e.TOTAL_EXPORTED
         FROM CATALOG.PRODUCT p
-        JOIN (
-            SELECT ef.PRODUCT_ID, SUM(ef.QUANTITY) AS TOTAL_EXPORTED
-            FROM WAREHOUSE.EXPORT_FROM ef
-            JOIN inserted i 
-                ON ef.EXPORT_RECEIPT_ID = i.EXPORT_RECEIPT_ID
-            JOIN deleted d 
-                ON i.EXPORT_RECEIPT_ID = d.EXPORT_RECEIPT_ID
-            WHERE d.MANAGER_ID IS NULL 
-              AND i.MANAGER_ID IS NOT NULL
-            GROUP BY ef.PRODUCT_ID
-        ) exp_sum ON p.PRODUCT_ID = exp_sum.PRODUCT_ID;
+        JOIN @exported e ON p.PRODUCT_ID = e.PRODUCT_ID;
     END
 END;
 GO
@@ -171,7 +185,7 @@ BEGIN
     )
     BEGIN
         ROLLBACK TRANSACTION;
-        ;THROW 50001, N'Lỗi R15: Chỉ phiếu xuất có lý do RETURN (Trả nhà cung cấp) mới được phép gắn nhà cung cấp nhận hàng trong bảng RETURN_SUPPLIER.', 1;
+        ;THROW 50001, N'Chỉ phiếu xuất có lý do trả nhà cung cấp mới được phép gắn nhà cung cấp nhận hàng.', 1;
     END
 END;
 GO

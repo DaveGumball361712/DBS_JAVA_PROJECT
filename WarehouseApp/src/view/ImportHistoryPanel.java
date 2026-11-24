@@ -38,6 +38,8 @@ public class ImportHistoryPanel extends JPanel {
     private List<ImportReceipt> displayedReceipts = new ArrayList<>();
     private Map<Integer, String> supplierNames = new HashMap<>();
     private Map<Integer, String> productNames = new HashMap<>();
+    private LocalDate currentFrom = null;
+    private LocalDate currentTo = null;
 
     public ImportHistoryPanel() {
         setLayout(new BorderLayout(5, 5));
@@ -138,7 +140,13 @@ public class ImportHistoryPanel extends JPanel {
         }
     }
 
+    public void reload() {
+        loadData(currentFrom, currentTo);
+    }
+
     public void loadData(LocalDate from, LocalDate to) {
+        this.currentFrom = from;
+        this.currentTo = to;
         try {
             supplierNames.clear();
             for (Supplier s : supplierDAO.findAll()) {

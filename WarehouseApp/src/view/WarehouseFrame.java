@@ -5,8 +5,14 @@ import util.Session;
 import javax.swing.*;
 import java.awt.*;
 
-// Frame chinh cua thu kho gom header (ten + dang xuat) va 3 tab: Nhap, Xuat, Kiem ke
+// Frame chinh cua thu kho gom header (ten + dang xuat) va 5 tab nghiep vu
 public class WarehouseFrame extends JFrame {
+
+    private final ImportPanel importPanel;
+    private final ExportPanel exportPanel;
+    private final StockCheckPanel stockCheckPanel;
+    private final ImportHistoryPanel importHistoryPanel;
+    private final LowStockPanel lowStockPanel;
 
     public WarehouseFrame() {
         this(Session.currentUser != null ? Session.currentUser.getFullName() : "Thủ kho");
@@ -24,11 +30,31 @@ public class WarehouseFrame extends JFrame {
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.setFont(tabbedPane.getFont().deriveFont(14f));
 
-        tabbedPane.addTab("Phiếu Nhập", new ImportPanel());
-        tabbedPane.addTab("Phiếu Xuất", new ExportPanel());
-        tabbedPane.addTab("Kiểm Kê", new StockCheckPanel());
-        tabbedPane.addTab("Lịch sử nhập", new ImportHistoryPanel());
-        tabbedPane.addTab("Sắp hết hàng", new LowStockPanel());
+        importPanel = new ImportPanel();
+        exportPanel = new ExportPanel();
+        stockCheckPanel = new StockCheckPanel();
+        importHistoryPanel = new ImportHistoryPanel();
+        lowStockPanel = new LowStockPanel();
+
+        tabbedPane.addTab("Phiếu Nhập", importPanel);
+        tabbedPane.addTab("Phiếu Xuất", exportPanel);
+        tabbedPane.addTab("Kiểm Kê", stockCheckPanel);
+        tabbedPane.addTab("Lịch sử nhập", importHistoryPanel);
+        tabbedPane.addTab("Sắp hết hàng", lowStockPanel);
+
+        // Tu dong tai lai du lieu moi nhat khi chuyen tab
+        tabbedPane.addChangeListener(e -> {
+            Component selected = tabbedPane.getSelectedComponent();
+            if (selected == importHistoryPanel) {
+                importHistoryPanel.reload();
+            } else if (selected == lowStockPanel) {
+                lowStockPanel.loadLowStock();
+            } else if (selected == importPanel) {
+                importPanel.refreshSuppliers();
+            } else if (selected == exportPanel) {
+                exportPanel.refreshSuppliers();
+            }
+        });
 
         add(tabbedPane, BorderLayout.CENTER);
     }
@@ -54,7 +80,7 @@ public class WarehouseFrame extends JFrame {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            new WarehouseFrame("Thủ kho (test)").setVisible(true);
+            new WarehouseFrame("Thủ kho").setVisible(true);
         });
     }
 }
