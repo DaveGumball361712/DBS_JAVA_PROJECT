@@ -79,7 +79,12 @@ public class CashierFrame extends JFrame {
         add(top, BorderLayout.NORTH);
 
         String[] columns = {"Mã SP", "Mã vạch", "Tên sản phẩm", "Đơn giá", "SL", "Thành tiền"};
-        model = new DefaultTableModel(columns, 0);
+        model = new DefaultTableModel(columns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
         table = new JTable(model);
         add(new JScrollPane(table), BorderLayout.CENTER);
 
@@ -167,6 +172,14 @@ public class CashierFrame extends JFrame {
             return;
         }
 
+        customer = null;
+        lblCustomer.setText("Khách vãng lai");
+
+        if (!phone.matches("[0-9]{1,12}")) {
+            JOptionPane.showMessageDialog(this, "Số điện thoại chỉ gồm chữ số, tối đa 12 số");
+            return;
+        }
+
         try {
             customer = customerDAO.findByPhone(phone);
             if (customer == null) {
@@ -180,13 +193,23 @@ public class CashierFrame extends JFrame {
                 if (name == null || name.trim().isEmpty()) {
                     return;
                 }
-                Customer c = new Customer(0, name.trim(), null, 0, phone, LocalDate.now());
+                String email = JOptionPane.showInputDialog(this, "Email khách hàng (ví dụ ten@gmail.com):");
+                if (email == null) {
+                    return;
+                }
+                email = email.trim();
+                if (!email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
+                    JOptionPane.showMessageDialog(this, "Email không đúng định dạng, ví dụ ten@gmail.com");
+                    return;
+                }
+                Customer c = new Customer(0, name.trim(), email, 0, phone, LocalDate.now());
                 customerDAO.insert(c);
                 customer = c;
             }
             lblCustomer.setText("Khách: " + customer.getName());
         } catch (Exception ex) {
             customer = null;
+            lblCustomer.setText("Khách vãng lai");
             ErrorHandler.showError(this, ex);
         }
     }
