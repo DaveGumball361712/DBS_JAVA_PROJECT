@@ -7,9 +7,9 @@
 | Thành viên | Phần phụ trách |
 |---|---|
 | Lưu Thanh Phúc | DAO kho (nhà cung cấp, phiếu nhập, xuất, kiểm kê), ReportDAO, màn hình Quản lý (6 tab), tích hợp và quản lý repo |
-| Đức | Model, BaseDAO, DAO nhân sự / sản phẩm / bán hàng, màn hình Đăng nhập, Session, ErrorHandler, dữ liệu mẫu |
-| Đạt | SQL bán hàng (view, trigger, procedure, báo cáo), màn hình Thu ngân |
-| Bảo | SQL kho (view, trigger, procedure duyệt phiếu), màn hình Kho |
+| Trần Ngọc Đức  | Model, BaseDAO, DAO nhân sự / sản phẩm / bán hàng, màn hình Đăng nhập, Session, ErrorHandler, dữ liệu mẫu |
+| Hoàng Xuân Đạt | SQL bán hàng (view, trigger, procedure, báo cáo), màn hình Thu ngân |
+| Nguyễn Gia Bảo | SQL kho (view, trigger, procedure duyệt phiếu), màn hình Kho |
 
 ## Yêu cầu
 
