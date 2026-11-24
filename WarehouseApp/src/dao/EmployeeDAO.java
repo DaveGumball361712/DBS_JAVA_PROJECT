@@ -172,27 +172,107 @@ public class EmployeeDAO extends BaseDAO<Employee, Integer> {
 
     @Override
     public boolean update(Employee obj) throws SQLException {
-        String sql = "UPDATE HR.EMPLOYEE SET FIRST_NAME = ?, LAST_NAME = ?, START_DATE = ?, " +
-                    "DATE_OF_BIRTH = ?, ADDRESS = ? WHERE EMPLOYEE_ID = ?";
-        try (Connection conn = getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, obj.getFirstName());
-            ps.setString(2, obj.getLastName());
-            ps.setDate(3, Date.valueOf(obj.getStartDate()));
-            ps.setDate(4, Date.valueOf(obj.getDateOfBirth()));
-            ps.setString(5, obj.getAddress());
-            ps.setInt(6, obj.getEmployeeId());
-            return ps.executeUpdate() > 0;
+        String sqlEmp = "UPDATE HR.EMPLOYEE SET FIRST_NAME = ?, LAST_NAME = ?, START_DATE = ?, " +
+                        "DATE_OF_BIRTH = ?, ADDRESS = ? WHERE EMPLOYEE_ID = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                // Cập nhật thông tin chung ở bảng cha HR.EMPLOYEE
+                int affected;
+                try (PreparedStatement ps = conn.prepareStatement(sqlEmp)) {
+                    ps.setString(1, obj.getFirstName());
+                    ps.setString(2, obj.getLastName());
+                    ps.setDate(3, Date.valueOf(obj.getStartDate()));
+                    ps.setDate(4, Date.valueOf(obj.getDateOfBirth()));
+                    ps.setString(5, obj.getAddress());
+                    ps.setInt(6, obj.getEmployeeId());
+                    affected = ps.executeUpdate();
+                }
+
+                // Cập nhật thông tin riêng ở bảng vai trò tương ứng
+                if (obj instanceof Manager m) {
+                    try (PreparedStatement psRole = conn.prepareStatement(
+                            "UPDATE HR.MANAGER SET BONUS = ? WHERE EMPLOYEE_ID = ?")) {
+                        psRole.setBigDecimal(1, m.getBonus());
+                        psRole.setInt(2, m.getEmployeeId());
+                        psRole.executeUpdate();
+                    }
+                } else if (obj instanceof Cashier c) {
+                    try (PreparedStatement psRole = conn.prepareStatement(
+                            "UPDATE HR.CASHIER SET MANAGER_ID = ?, ASSIGNED_COUNTER = ? WHERE EMPLOYEE_ID = ?")) {
+                        psRole.setInt(1, c.getManagerId());
+                        psRole.setInt(2, c.getAssignedCounter());
+                        psRole.setInt(3, c.getEmployeeId());
+                        psRole.executeUpdate();
+                    }
+                } else if (obj instanceof WarehouseStaff w) {
+                    try (PreparedStatement psRole = conn.prepareStatement(
+                            "UPDATE HR.WAREHOUSE_STAFF SET MANAGER_ID = ?, ASSIGNED_ZONE = ? WHERE EMPLOYEE_ID = ?")) {
+                        psRole.setInt(1, w.getManagerId());
+                        psRole.setString(2, w.getAssignedZone());
+                        psRole.setInt(3, w.getEmployeeId());
+                        psRole.executeUpdate();
+                    }
+                }
+
+                conn.commit();
+                return affected > 0;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 
     @Override
     public boolean delete(Integer id) throws SQLException {
-        String sql = "DELETE FROM HR.EMPLOYEE WHERE EMPLOYEE_ID = ?";
-        try (Connection conn = getConnection();
-            PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, id);
-            return ps.executeUpdate() > 0;
+        String sqlGetUsername = "SELECT USERNAME FROM HR.EMPLOYEE WHERE EMPLOYEE_ID = ?";
+        String sqlDelEmp = "DELETE FROM HR.EMPLOYEE WHERE EMPLOYEE_ID = ?";
+        String sqlDelAcc = "DELETE FROM HR.ACCOUNT WHERE USERNAME = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                // Lấy USERNAME trước khi xóa nhân viên
+                String username = null;
+                try (PreparedStatement psGet = conn.prepareStatement(sqlGetUsername)) {
+                    psGet.setInt(1, id);
+                    try (ResultSet rs = psGet.executeQuery()) {
+                        if (rs.next()) {
+                            username = rs.getString("USERNAME");
+                        } else {
+                            conn.rollback();
+                            return false; // Không tìm thấy nhân viên
+                        }
+                    }
+                }
+
+                // Xóa HR.EMPLOYEE trước (tự CASCADE xóa MANAGER/CASHIER/WAREHOUSE_STAFF/PHONE)
+                int affected;
+                try (PreparedStatement psEmp = conn.prepareStatement(sqlDelEmp)) {
+                    psEmp.setInt(1, id);
+                    affected = psEmp.executeUpdate();
+                }
+
+                // Xóa HR.ACCOUNT sau cùng (vì EMPLOYEE đang giữ FK trỏ sang ACCOUNT)
+                if (username != null) {
+                    try (PreparedStatement psAcc = conn.prepareStatement(sqlDelAcc)) {
+                        psAcc.setString(1, username);
+                        psAcc.executeUpdate();
+                    }
+                }
+
+                conn.commit();
+                return affected > 0;
+            } catch (SQLException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 
