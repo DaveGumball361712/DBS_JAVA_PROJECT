@@ -16,8 +16,8 @@ public class SalesOrderDAO extends BaseDAO<SalesOrder, Integer> {
             OrderLine line = lines.get(i);
             if (i > 0) sb.append(",");
             sb.append("{\"productId\":").append(line.getProductId())
-              .append(",\"quantity\":").append(line.getQuantity())
-              .append("}");
+            .append(",\"quantity\":").append(line.getQuantity())
+            .append("}");
         }
         sb.append("]");
         return sb.toString();
@@ -62,7 +62,7 @@ public class SalesOrderDAO extends BaseDAO<SalesOrder, Integer> {
                 conn.commit();
                 return newOrderId;
             } catch (SQLException ex) {
-                conn.rollback();
+                try { conn.rollback(); } catch (SQLException ignored) {}
                 throw ex;
             } finally {
                 conn.setAutoCommit(true);
